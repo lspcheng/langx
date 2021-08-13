@@ -1,0 +1,214 @@
+---
+title: "DataExploration"
+output: html_document
+---
+## Packages
+```{r}
+library(tidyverse)
+library(mgsub)
+library(ggplot2)
+
+# Create tables
+library(gt)
+library(webshot)
+```
+
+## Read in Data
+```{r}
+hindi_read <- read_delim("data/raw/HindiAcceptabilityDemo210727.txt", "\t") 
+
+# Remove additional empty rows from some sort of manual value
+hindi_read <- hindi_read %>%  select(1:22)
+
+# Take a look at data
+glimpse(hindi_read)
+head(hindi_read)
+
+# View(hindi_read)
+```
+
+```{r}
+# Keep copy of questions
+hindi_q <- slice(hindi_read, 1)
+```
+
+```{r}
+# Check some stuff
+# colnames(hindi_read)
+# length(unique(hindi$condition))
+```
+
+## Clean Data
+```{r}
+# Rename question columns
+hindi <- hindi_read %>% rename_at(vars(7:22), ~ c("loc_child", "loc_now", "hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_read", "comfort_write", "comfort_speak", "HUregion_time", "HUregion_from", "native_HU", "native_Eng")) %>%
+
+  # Fix strange single column errors
+  mutate(HUregion_time = case_when(participant == "R_8ABOSyqKc2VugbD" ~ "4/12",
+                                   TRUE ~ HUregion_time)) %>%
+  mutate(loc_child = case_when(participant == "R_3qrql5FeZWfCLet" ~ "Texas, USA",
+                               TRUE ~ loc_child)) %>%  
+  # filter(participant == "R_3JEnBflQnuMjBrB") %>% # one row is just missing all ques. data
+  filter(loc_child !="Country") %>%
+  
+  # Remove all NA participants
+  filter(!is.na(loc_child))
+  # drop_na() %>%
+  # relocate(native_HU, native_Eng, .before=hear_child)
+
+# Check number of subjects
+length(unique(hindi$participant))
+```
+
+```{r}
+# Check summary
+hindi %>% mutate_if(is.character, as.factor) %>% summary()
+```
+
+```{r}
+# Clean responses & code categorical groups
+hindi <- hindi %>% 
+  
+  mutate_if(is.character, tolower) %>%
+  
+  # Replace numeric NAs with 0 (assume no response = 0 percent/comfort)
+  mutate(across(hear_child:comfort_speak, ~ coalesce(.x, 0))) %>%
+  
+  # Create native status categories
+  mutate(native_group = case_when(native_HU == "yes" & native_Eng == "yes" ~ "both",
+                                  native_HU == "yes" & native_Eng == "no" ~ "HU",
+                                  native_HU == "no" & native_Eng == "yes" ~ "Eng",
+                                  native_HU == "no" & native_Eng == "no" ~ "neither")) %>%
+  
+  # Clean free response text
+  mutate(country_child = mgsub(loc_child, c("(", ")"), c(",", ""), fixed=TRUE)) %>%
+  mutate(country_child = mgsub(country_child, c("(.*,)", "united arab emirates", "us$|vermont and hawaii."), c("", "uae", "usa"))) %>%
+  mutate(country_child = str_trim(country_child)) %>%
+  
+  mutate(country_now = mgsub(loc_now, c("(", ")", "."), c(",", "", ""), fixed=TRUE)) %>%
+  mutate(country_now = mgsub(country_now, c("(.*,)|(.*-)", "united states of america|united states$|us$|both chicago and new york|texas$|texas usa", "united kingdom"), c("", "usa", "uk"))) %>%
+  mutate(country_now = str_trim(country_now)) %>%
+  
+  # Create residential history categories
+  mutate(residence_group = case_when((country_child == "usa" | country_child == "canada") & 
+                                       (country_now == "usa"| country_now == "canada") ~ "NorthAm",
+                                     (country_child == "india" | country_child == "pakistan") & 
+                                       (country_now == "india"| country_now == "pakistan") ~ "SouthAs",
+                                     (country_child == "india" | country_child == "pakistan") & 
+                                       (country_now == "usa"| country_now == "canada") ~ "SAtoNA",
+                                     TRUE ~ "uncategorized"))
+```
+
+
+### Check Questionnaire Responses
+```{r}
+# Only by-subject questionnaire responses
+hindi_subj <- hindi %>% select(participant, loc_child:last_col()) %>%
+  distinct()
+# View(hindi_subj)
+
+hindi_subj %>% count(native_group)
+hindi_subj %>% count(residence_group)
+
+```
+
+```{r}
+# Check NAs
+# filter(hindi_subj, is.na(loc_child))
+```
+
+
+
+## Compile Clustering DataFrames
+
+### Category labels
+```{r}
+# NOTE: Ignoring HUregion_time & HUregion_from columns right now
+
+hindi_groups <- hindi %>% select(participant, native_group, residence_group) %>% distinct()
+hindi_groups
+```
+
+### Language Experience
+```{r}
+hindi_langexp <- hindi %>% select(participant, hear_child:comfort_speak) %>% distinct()
+hindi_langexp
+```
+
+#### Check Multicollinearity
+
+Two highly correlated variables to collapse: `comfort_read` & `comfort_write`
+
+```{r}
+# Select only variables
+hindi_langexp_var <- hindi_langexp %>% select(2:last_col()) 
+
+# Create correlation matrix
+hindi_langexp_cor <- cor(hindi_langexp_var)
+hindi_langexp_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
+
+# Visualize
+corrplot::corrplot(hindi_langexp_cor,method='number',is.corr = T)
+```
+
+```{r}
+# Modify dataframe to average multicolliear variables
+hindi_langexp <- hindi_langexp %>%
+  mutate(comfort_readwrite = (comfort_read+comfort_write)/2) %>% # take average
+  select(-comfort_read, -comfort_write)
+hindi_langexp
+```
+
+
+### Acceptability Judgments
+```{r}
+hindi_accjudg <- hindi %>% select(participant, item, condition, response) %>% 
+  group_by(participant) %>%
+  mutate(Zresponse = scale(response)) %>% select(-response) %>%
+  pivot_wider(participant:item, names_from=condition, values_from=Zresponse) %>%
+  group_by(participant) %>% summarize(across(where(is.numeric), ~ mean(.x, na.rm=TRUE)))
+hindi_accjudg
+```
+
+
+#### Check Multicollinearity
+
+No highly correlated condition/response variables!
+
+```{r}
+# Select only variables
+hindi_accjudg_var <- hindi_accjudg %>% select(2:last_col()) 
+
+# Create correlation matrix
+hindi_accjudg_cor <- cor(hindi_accjudg_var)
+hindi_accjudg_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
+
+# Visualize
+corrplot::corrplot(hindi_accjudg_cor,method='number',is.corr = T)
+```
+
+```{r}
+# save as Rdata
+save(hindi_groups, file="data/processed/hindi_groups.RData")
+save(hindi_langexp, file="data/processed/hindi_langexp.RData")
+save(hindi_accjudg, file="data/processed/hindi_accjudg.RData")
+```
+
+
+# ...
+# For Reference
+```{r}
+## From https://www.dezyre.com/recipes/check-multicollinearity-r
+
+# hindi_langexp_var <- hindi_langexp %>% select(2:last_col())                         # independent variables 
+
+# var <- cor(hindi_langexp_var)
+
+# var_inv <- MASS::ginv(var)                                       # independent variables inverse correlation matrix 
+# 
+# colnames(var_inv) <- colnames(hindi_langexp_var)                      # rename the row names and column names
+# rownames(var_inv) <- colnames(hindi_langexp_var)
+# 
+# corrplot::corrplot(var_inv,method='number',is.corr = F)              # visualize the multicollinearity
+
+```
