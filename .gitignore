@@ -1,5 +1,6 @@
 data/
 *.DS_Store
+_archive/
 
 # History files
 .Rhistory
