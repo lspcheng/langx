@@ -15,7 +15,19 @@ library(webshot)
 
 ## Read in Data
 ```{r}
-hindi_read <- read_delim("data/raw/HindiAcceptabilityDemo210727.txt", "\t") 
+
+if (!dir.exists("data/raw")) {
+  dir.create("data/raw")
+  print("Input directory created. Please place data file into ./data/raw.")
+  
+} else {
+  if (!file.exists("data/raw/HindiAcceptabilityDemo210727.txt")) {
+    print("Data not found. Please place data file into ./data/raw.")
+    
+  } else {
+    hindi_read <- read_delim("data/raw/HindiAcceptabilityDemo210727.txt", "\t") 
+  }
+}
 
 # Remove additional empty rows from some sort of manual value
 hindi_read <- hindi_read %>%  select(1:22)
@@ -187,7 +199,12 @@ hindi_accjudg_cor %>% as_tibble(rownames = "var") # independent variables correl
 corrplot::corrplot(hindi_accjudg_cor,method='number',is.corr = T)
 ```
 
+## Save Processed Data
 ```{r}
+if (!dir.exists("data/processed")) {
+  dir.create("data/processed")
+}
+
 # save as Rdata
 save(hindi_groups, file="data/processed/hindi_groups.RData")
 save(hindi_langexp, file="data/processed/hindi_langexp.RData")
