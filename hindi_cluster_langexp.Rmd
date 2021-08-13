@@ -1,0 +1,778 @@
+---
+title: "DataExploration"
+output: html_document
+---
+## Packages & Functions
+```{r}
+library(tidyverse)
+library(mgsub)
+library(ggplot2)
+
+# Create tables
+library(gt)
+library(webshot)
+
+# Clustering
+library(cluster)
+library(factoextra)
+library(fpc)
+
+gg_theme <- function() {
+  theme_bw() +
+  theme(plot.title=element_text(size=25),
+        plot.subtitle=element_text(size=15, face="italic"),
+        axis.title=element_text(size=20),
+        axis.text=element_text(size=15),
+        strip.background =element_rect(fill="white"),
+        strip.text = element_text(size=15))+
+  theme(legend.title = element_text(size=15, face="bold"),
+        legend.text=element_text(size=10))
+}
+```
+
+## Load in Data
+```{r}
+load(file="data/processed/hindi_groups.RData")
+load(file="data/processed/hindi_langexp.RData")
+```
+
+# .
+## Cluster Analysis
+
+### Prep Data
+```{r}
+# Full F1-F2 vowel space
+langexp_scores <- hindi_langexp %>% select(-participant)
+langexp_scaled <- as.data.frame(lapply(langexp_scores, scale))
+langexp_scaled
+```
+
+### Assess Clustering Tendency
+
+```{r}
+# Create and plot Random dataset to compare to actual
+random_df <- apply(langexp_scores, 2, function(x){runif(length(x), min(x), (max(x)))})
+random_df <- as.data.frame(random_df)
+random_scaled <- as.data.frame(lapply(random_df, scale))
+random_scaled
+
+# Plot random dataset with PCA to reduce dimensions to 2
+fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data",
+             habillage = hindi_groups$native_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+```
+
+
+```{r}
+#### Visual Inspection
+# Plot dataset with PCA to reduce dimensions to 2
+fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
+             habillage = hindi_groups$native_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+
+fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
+             habillage = hindi_groups$residence_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+```
+
+```{r}
+# Check Hopkins statistics (above 0.5 is threshold)
+res <- get_clust_tendency(langexp_scaled, n = nrow(langexp_scaled)-1, graph = FALSE)
+res$hopkins_stat
+```
+
+
+
+### Assess Number of Clusters
+```{r}
+# Elbow method
+fviz_nbclust(langexp_scaled, kmeans, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+
+fviz_nbclust(langexp_scaled, hcut, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+```
+
+
+```{r}
+# Silhouette method
+fviz_nbclust(langexp_scaled, kmeans, method = "silhouette", k.max = 10) +
+  labs(subtitle = "Silhouette method")
+
+fviz_nbclust(langexp_scaled, hcut, method = "silhouette", k.max = 10) +
+  labs(subtitle = "Silhouette method")
+
+```
+
+
+```{r}
+# Gap statistic
+# nboot = 50 to keep the function speedy. 
+# recommended value: nboot= 500 for your analysis.
+# Use verbose = FALSE to hide computing progression.
+set.seed(123)
+fviz_nbclust(langexp_scaled, kmeans, nstart = 25,  method = "gap_stat", nboot = 500, k.max = 10)+
+  labs(subtitle = "Gap statistic method")
+
+#calculate gap statistic for each number of clusters (up to 10 clusters)
+gap_stat <- clusGap(langexp_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 500)
+
+#produce plot of clusters vs. gap statistic
+fviz_gap_stat(gap_stat)
+```
+
+```{r}
+# Calculate 30 different indices of cluster size and pick consensus
+library(NbClust)
+
+# NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="all")
+
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
+```
+
+# .
+### Run Hierarchical clustering
+
+#### Test Runs
+```{r}
+#perform hierarchical clustering using Ward's minimum variance
+set.seed(168)
+clust <- agnes(langexp_scaled, method = "average")
+clust
+
+#produce dendrogram
+# png(filename ="output/langexp_dendrogram.png")
+pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+```
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+hclust_ward <- hclust(d, method = "ward.D2")
+hclust_avg <- hclust(d, method = "average" )
+hclust_cmp <- hclust(d, method = "complete")
+hclust_sgl <- hclust(d, method = "single" )
+
+```
+
+```{r}
+plot(hclust_ward)
+plot(hclust_avg)
+plot(hclust_cmp)
+plot(hclust_sgl)
+```
+
+#### Final Run
+
+```{r}
+# #perform hierarchical clustering using Ward's minimum variance
+# set.seed(168)
+# clust <- agnes(langexp_scaled, method = "ward")
+# clust
+# 
+# #produce dendrogram
+# # png(filename ="output/langexp_dendrogram.png")
+# pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+```
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+final_clust <- hclust(d, method = "ward.D2")
+```
+
+```{r}
+#cut the dendrogram into 8 clusters
+cluster8 <- cutree(final_clust, k=8)
+
+#find number of observations in each cluster
+table(cluster8)
+
+#cut the dendrogram into 3 clusters
+cluster3 <- cutree(final_clust, k=3)
+
+#find number of observations in each cluster
+table(cluster3)
+```
+
+```{r}
+plot(final_clust)
+rect.hclust(final_clust , k = 3, border = 2:6)
+abline(h = 12.25, col = 'red')
+```
+
+```{r}
+plot(final_clust)
+rect.hclust(final_clust , k = 8, border = 2:6)
+abline(h = 5, col = 'red')
+```
+
+
+```{r}
+# append cluster labels to original data
+langexp_final_data <- cbind(hindi_groups, cluster8 = cluster8) %>%
+  cbind(cluster3 = cluster3) %>%
+  cbind(langexp_scores)
+
+# View(langexp_final_data)
+```
+
+
+##### Validate (Internal)
+```{r}
+# Silhouette Plot
+# A large value (close to 1) represents good clustering; Close to -1 means bad (wrong cluster)
+sil <- silhouette(cluster8, dist(langexp_scaled))
+fviz_silhouette(sil, palette="jco") + theme_bw()
+
+sil <- silhouette(cluster3, dist(langexp_scaled))
+fviz_silhouette(sil, palette="jco") + theme_bw()
+```
+
+```{r}
+# Dunn Index
+# A large Dunn index reprsents good clustering (min.separation/max.diamenter)
+km.stats <- cluster.stats(dist(langexp_scaled), cluster8)
+km.stats$dunn
+
+km.stats <- cluster.stats(dist(langexp_scaled), cluster3)
+km.stats$dunn
+```
+
+##### Validate (External)
+```{r}
+# 3-cluster v. Native
+
+# How well do clusters match group structure?
+native_groups <- as.numeric(as.factor(hindi_groups$native_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), native_groups,cluster3)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(native_groups,cluster3)
+```
+
+```{r}
+# 8-cluster v. Native
+
+# How well do clusters match group structure?
+native_groups <- as.numeric(as.factor(hindi_groups$native_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), native_groups,cluster8)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(native_groups,cluster8)
+```
+
+```{r}
+# 3-cluster v. residence
+
+# How well do clusters match group structure?
+residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), residence_groups,cluster3)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(residence_groups,cluster3)
+```
+
+```{r}
+# 8-cluster v. Residence
+
+# How well do clusters match group structure?
+residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), residence_groups,cluster8)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(residence_groups,cluster8)
+```
+
+#### Data Summary
+```{r}
+# # Check cluster individuals
+# langexp_final_data %>% filter(cluster3==1)
+# langexp_final_data %>% filter(cluster3==2)
+```
+
+
+##### Count Tables
+```{r}
+# Count of smaller clusters within larger clusters
+langexp_final_data %>% group_by(cluster3) %>% count(cluster8) %>% pivot_wider(names_from = cluster8, values_from=n)
+```
+
+```{r}
+# 3-cluster table
+cluster_counts3 <- 
+  langexp_final_data %>% count(cluster3) %>%
+  merge(langexp_final_data %>% group_by(cluster3) %>%
+          count(native_group) %>% pivot_wider(names_from = native_group, values_from=n) 
+        ) %>%
+  merge(langexp_final_data %>% group_by(cluster3) %>% 
+          count(residence_group) %>% pivot_wider(names_from = residence_group, values_from=n)
+        ) %>%
+  mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+  rename(Cluster = cluster3) %>%
+  
+  as_tibble() %>%
+  gt(rowname_col = "Cluster") %>%
+  tab_header(
+    title = "Category Counts by Cluster",
+    subtitle = "3-cluster solution via hierarchical clustering"
+  ) %>%
+  fmt_integer(
+    columns = everything()
+  ) %>%
+  tab_stubhead(label = "Cluster") %>%
+  tab_spanner(
+    label = "Native Identification",
+    columns = c(both, Eng, HU, neither)
+  ) %>%
+  tab_spanner(
+    label = "Residential History",
+    columns = c(NorthAm, SAtoNA, SouthAs, uncategorized)
+  ) %>%
+  grand_summary_rows(
+    columns = everything(),
+    fns = list(
+      Sum = ~sum(., na.rm=TRUE)),
+    missing_text = "NA",
+    formatter = fmt_integer
+  ) %>%
+  cols_align(align = c("center"),
+             columns = everything()
+             # columns = n
+  ) %>%
+  tab_style(style = cell_borders(color = "lightgrey", sides = c("left"), weight = px(2)),
+            locations = list(
+              cells_column_spanners(),
+              cells_column_labels(columns = NorthAm),
+              cells_body(columns = NorthAm),
+              cells_grand_summary(columns = NorthAm)
+            )
+            ) %>%
+  tab_style(style = list(
+    cell_borders(color = "lightgrey", sides = c("left", "right"), weight = px(2)),
+    cell_text(style = "italic")
+    ), 
+            locations = list(
+              cells_column_labels(columns = n),
+              cells_body(columns = n),
+              cells_grand_summary(columns = n)
+              )
+            ) %>%
+  tab_style(style = cell_text(weight="bold"), 
+            locations = list(
+              cells_title(groups= "title"),
+              cells_column_spanners(),
+              cells_stubhead(),
+              cells_grand_summary(columns = everything(), rows = TRUE)
+              )
+            )
+cluster_counts3
+
+gtsave(cluster_counts3, "output/langexp/langexp_clust3_counts.html")
+webshot2::webshot("output/langexp/langexp_clust3_counts.html", "output/langexp/langexp_clust3_counts.png", vwidth = 625, zoom = 2.5) 
+# gtsave(cluster_counts3, "output/latex/langexp_clust3_counts.tex") 
+```
+
+```{r}
+# small-cluster table
+cluster_counts8 <- 
+  langexp_final_data %>% count(cluster8) %>%
+  merge(langexp_final_data %>% group_by(cluster3, cluster8) %>%
+          count(native_group) %>% pivot_wider(names_from = native_group, values_from=n) 
+        ) %>%
+  merge(langexp_final_data %>% group_by(cluster3, cluster8) %>% 
+          count(residence_group) %>% pivot_wider(names_from = residence_group, values_from=n)
+        ) %>%
+  mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+  rename(Cluster = cluster8) %>%
+  mutate(cluster3 = fct_recode(factor(cluster3), "Cluster 1" = "1", "Cluster 2" = "2", "Cluster 3" = "3")) %>%
+  
+  as_tibble() %>%
+  gt(rowname_col = "Cluster",
+     groupname_col = "cluster3") %>%
+  tab_header(
+    title = "Category Counts by Cluster",
+    subtitle = "8-cluster solution via hierarchical clustering"
+  ) %>%
+  fmt_integer(
+    columns = everything()
+  ) %>%
+  tab_stubhead(label = "Cluster") %>%
+  tab_spanner(
+    label = "Native Identification",
+    columns = c(both, Eng, HU, neither)
+  ) %>%
+  tab_spanner(
+    label = "Residential History",
+    columns = c(NorthAm, SAtoNA, SouthAs, uncategorized)
+  ) %>%
+  grand_summary_rows(
+    columns = everything(),
+    fns = list(
+      Sum = ~sum(., na.rm=TRUE)),
+    missing_text = "NA",
+    formatter = fmt_integer
+  ) %>%
+  # summary_rows(
+  #   groups = TRUE,
+  #   columns = everything(),
+  #   fns = list(
+  #     Sum = ~sum(., na.rm=TRUE)),
+  #   missing_text = "NA",
+  #   formatter = fmt_integer
+  # ) %>%
+  cols_align(align = c("center"),
+             columns = everything()
+             # columns = n
+  ) %>%
+  tab_style(style = cell_fill(alpha = 0.5),
+            locations = cells_row_groups()) %>%
+  tab_style(style = cell_borders(color = "lightgrey", sides = c("left"), weight = px(2)),
+            locations = list(
+              cells_column_spanners(),
+              cells_column_labels(columns = NorthAm),
+              cells_body(columns = NorthAm),
+              # cells_summary(columns = NorthAm),
+              cells_grand_summary(columns = NorthAm)
+            )
+            ) %>%
+  tab_style(style = list(
+    cell_borders(color = "lightgrey", sides = c("left", "right"), weight = px(2)),
+    cell_text(style = "italic")
+    ), 
+            locations = list(
+              cells_column_labels(columns = n),
+              cells_body(columns = n),
+              # cells_summary(columns = n),
+              cells_grand_summary(columns = n)
+              )
+            ) %>%
+  tab_style(style = cell_text(weight="bold"), 
+            locations = list(
+              cells_title(groups= "title"),
+              cells_column_spanners(),
+              cells_stubhead(),
+              # cells_summary(columns = everything(), rows = TRUE),
+              cells_grand_summary(columns = everything(), rows = TRUE)
+              )
+            )
+cluster_counts8
+
+gtsave(cluster_counts8, "output/langexp/langexp_clust8_counts.html")
+webshot2::webshot("output/langexp/langexp_clust8_counts.html", "output/langexp/langexp_clust8_counts.png", vwidth = 625, zoom = 2.5) 
+```
+
+##### Cluster Plots
+```{r}
+# Plot clusters
+fviz_cluster(list(data = langexp_scaled, cluster = cluster8),
+             ellipse.type = "norm", geom = "point", stand = FALSE,
+             palette = "jco") + gg_theme() + 
+  labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
+ggsave("./output/langexp/langexp_clust8_cluster.png")
+
+# Plot clusters
+fviz_cluster(list(data = langexp_scaled, cluster = cluster3),
+             ellipse.type = "norm", geom = "point", stand = FALSE,
+             palette = "jco") + gg_theme() +
+  labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
+ggsave("./output/langexp/langexp_clust3_cluster.png")
+
+```
+
+
+##### Z-Mean Plots
+```{r}
+# Z-score effect Cluster results
+hindi_groups %>% cbind(cluster3) %>% cbind(cluster8) %>% 
+  cbind(langexp_scaled) %>% group_by(cluster3) %>% summarize(across(where(is.numeric), mean)) %>%
+  pivot_longer(hear_child:last_col(), names_to = "variable", values_to = "z_score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=cluster3, y=z_score, fill=variable)) +
+  geom_bar(stat="identity", position="dodge", alpha=0.8) +
+  labs(subtitle="Cluster Z-Means", x="Cluster", y="Z-Score", color="Variable", fill="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+
+ggsave("output/langexp/langexp_clust3_zmeans.png", width=12, height=7)
+```
+
+```{r}
+# Z-score effect Cluster results
+hindi_groups %>% cbind(cluster3) %>% cbind(cluster8) %>% 
+  cbind(langexp_scaled) %>% group_by(cluster8) %>% summarize(across(where(is.numeric), mean)) %>%
+  pivot_longer(hear_child:last_col(), names_to = "variable", values_to = "z_score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=z_score, fill=variable)) +
+  geom_bar(stat="identity", position="dodge", alpha=0.8) +
+  facet_wrap(~cluster8, ncol=8) +
+  labs(subtitle="Cluster Z-Means", x="Cluster", y="Z-Score", color="Variable", fill="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+
+ggsave("output/langexp/langexp_clust8_zmeans.png", width=12, height=7)
+```
+
+##### Mean Tables
+```{r}
+cluster_means8 <- langexp_final_data %>% group_by(cluster8) %>%
+  summarize(across(where(is.numeric), mean)) %>% select(-cluster3)
+cluster_means8
+
+cluster_means3 <- langexp_final_data %>% group_by(cluster3) %>%
+  summarize(across(where(is.numeric), mean)) %>% select(-cluster8)
+cluster_means3
+```
+
+##### Mean Plots
+```{r}
+cluster3.plt <- 
+  cluster_means3 %>% 
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, fill=variable)) +
+  geom_col(position="dodge", width=0.8, alpha=0.8) +
+  facet_wrap(~cluster3) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+cluster3.plt
+
+ggsave("output/langexp/langexp_clust3_means.png", width=12, height=7)
+```
+
+Cluster 1 = Low use of reading and writing now, but high comfort with all understand/speak/read/write
+Cluster 2 = Lowest all scores, with highest comfort understanding and lowest use of reading/writing; lower speaking than hearing both growing up and now
+Cluster 3 = High ratings overall, lowest being reading/writing use (still ~75)
+
+```{r}
+cluster8.plt <-
+  cluster_means8 %>% 
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(cluster8 = factor(cluster8, levels = c("1", "3", "5", "7", "2", "4", "8", "6"))) %>%
+  
+  ggplot(aes(x=variable, y=score, fill=variable)) +
+  geom_col(position="dodge", width=0.8, alpha=0.8) +
+  facet_wrap(~cluster8, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+cluster8.plt
+
+ggsave("output/langexp/langexp_clust8_means.png", width=12, height=7)
+
+```
+
+
+
+##### Individual Plots
+```{r}
+# # Cluster results by individual
+langexp_final_data %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~cluster3, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+ggsave("output/langexp/langexp_clust3_ind.png", width=12, height=7)
+
+
+```
+
+```{r}
+langexp_final_data %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(cluster8 = factor(cluster8, levels = c("1", "3", "5", "7", "2", "4", "8", "6"))) %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~cluster8, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
+
+```
+
+# .
+### Run K-Means Cluster
+
+#### Test Run
+```{r}
+set.seed(168)
+# Run clustering
+clust_km <- kmeans(langexp_scaled, 3)
+
+# Check details
+clust_km$size
+clust_km$cluster
+clust_km$centers
+```
+
+##### Validate (Internal)
+```{r}
+# Silhouette Plot
+# A large value (close to 1) represents good clustering; Close to -1 means bad (wrong cluster)
+sil <- silhouette(clust_km$cluster, dist(langexp_scaled))
+fviz_silhouette(sil, palette="jco") + theme_bw()
+```
+
+```{r}
+# Dunn Index
+# A large Dunn index reprsents good clustering (min.separation/max.diamenter)
+km.stats <- cluster.stats(dist(langexp_scaled), clust_km$cluster)
+km.stats$dunn
+```
+
+##### Validate (External)
+```{r}
+# K-means to Hierarchical
+
+# How well do clusters match?
+clust.stats <- cluster.stats(d = dist(langexp_scaled), clust_km$cluster, cluster3)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(native_groups,cluster3)
+```
+
+```{r}
+# 3-cluster v. Native
+
+# How well do clusters match group structure?
+native_groups <- as.numeric(as.factor(hindi_groups$native_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), native_groups,clust_km$cluster)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(native_groups,clust_km$cluster)
+```
+
+```{r}
+# 3-cluster v. Residence
+
+# How well do clusters match group structure?
+residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), residence_groups,clust_km$cluster)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(residence_groups,clust_km$cluster)
+```
+
+# ...
+# For Reference
+
+```{r}
+# gtsave(cluster_counts3, "output/langexp_clust3_counts.png", delay=5) 
+## no bold (known bug but unfixed as of Aug 2021; workaround: https://github.com/rstudio/gt/issues/621)
+```
+
