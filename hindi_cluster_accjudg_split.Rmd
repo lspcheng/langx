@@ -38,27 +38,31 @@ load(file="data/processed/hindi_accjudg.RData")
 ```
 
 # .
-## Cluster Analysis
+## Cluster Analysis: (Un)Gram
+```{r}
+if (!dir.exists("output/accjudg_gram")) {
+  dir.create("output/accjudg_gram") }
+```
 
 ### Prep Data
 ```{r}
 # Full F1-F2 vowel space
-accjudg_scores <- hindi_accjudg %>% select(-participant)
-accjudg_scaled <- as.data.frame(lapply(accjudg_scores, scale))
-accjudg_scaled
+accjudg_gram_scores <- hindi_accjudg %>% select(-participant) %>% select(starts_with(c("gram", "ungram")))
+accjudg_gram_scaled <- as.data.frame(lapply(accjudg_gram_scores, scale))
+accjudg_gram_scaled
 ```
 
 ### Assess Clustering Tendency
 
 ```{r}
 # Create and plot Random dataset to compare to actual
-random_df <- apply(accjudg_scores, 2, function(x){runif(length(x), min(x), (max(x)))})
+random_df <- apply(accjudg_gram_scores, 2, function(x){runif(length(x), min(x), (max(x)))})
 random_df <- as.data.frame(random_df)
 random_scaled <- as.data.frame(lapply(random_df, scale))
 random_scaled
 
 # Plot random dataset with PCA to reduce dimensions to 2
-fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data",
+fviz_pca_ind(prcomp(random_scaled), title = "PCA - Gram/Ungram Response Data",
              habillage = hindi_groups$native_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
@@ -68,12 +72,12 @@ fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data",
 ```{r}
 #### Visual Inspection
 # Plot dataset with PCA to reduce dimensions to 2
-fviz_pca_ind(prcomp(accjudg_scaled), title = "PCA - Language Experience Data",
+fviz_pca_ind(prcomp(accjudg_gram_scaled), title = "PCA - Gram/Ungram Response Data",
              habillage = hindi_groups$native_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
 
-fviz_pca_ind(prcomp(accjudg_scaled), title = "PCA - Language Experience Data",
+fviz_pca_ind(prcomp(accjudg_gram_scaled), title = "PCA - Gram/Ungram Response Data",
              habillage = hindi_groups$residence_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
@@ -81,7 +85,7 @@ fviz_pca_ind(prcomp(accjudg_scaled), title = "PCA - Language Experience Data",
 
 ```{r}
 # Check Hopkins statistics (above 0.5 is threshold)
-res <- get_clust_tendency(accjudg_scaled, n = nrow(accjudg_scaled)-1, graph = FALSE)
+res <- get_clust_tendency(accjudg_gram_scaled, n = nrow(accjudg_gram_scaled)-1, graph = FALSE)
 res$hopkins_stat
 ```
 
@@ -90,20 +94,20 @@ res$hopkins_stat
 ### Assess Number of Clusters
 ```{r}
 # Elbow method
-fviz_nbclust(accjudg_scaled, kmeans, method = "wss", k.max = 10) +
+fviz_nbclust(accjudg_gram_scaled, kmeans, method = "wss", k.max = 10) +
   labs(subtitle = "Elbow method")
 
-fviz_nbclust(accjudg_scaled, hcut, method = "wss", k.max = 10) +
+fviz_nbclust(accjudg_gram_scaled, hcut, method = "wss", k.max = 10) +
   labs(subtitle = "Elbow method")
 ```
 
 
 ```{r}
 # Silhouette method
-fviz_nbclust(accjudg_scaled, kmeans, method = "silhouette", k.max = 10) +
+fviz_nbclust(accjudg_gram_scaled, kmeans, method = "silhouette", k.max = 10) +
   labs(subtitle = "Silhouette method")
 
-fviz_nbclust(accjudg_scaled, hcut, method = "silhouette", k.max = 10) +
+fviz_nbclust(accjudg_gram_scaled, hcut, method = "silhouette", k.max = 10) +
   labs(subtitle = "Silhouette method")
 
 ```
@@ -115,11 +119,11 @@ fviz_nbclust(accjudg_scaled, hcut, method = "silhouette", k.max = 10) +
 # recommended value: nboot= 500 for your analysis.
 # Use verbose = FALSE to hide computing progression.
 set.seed(123)
-fviz_nbclust(accjudg_scaled, kmeans, nstart = 25,  method = "gap_stat", nboot = 500, k.max = 10)+
-  labs(subtitle = "Gap statistic method")
+# fviz_nbclust(accjudg_gram_scaled, kmeans, nstart = 25,  method = "gap_stat", nboot = 500, k.max = 10)+
+  # labs(subtitle = "Gap statistic method")
 
 #calculate gap statistic for each number of clusters (up to 10 clusters)
-gap_stat <- clusGap(accjudg_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 500)
+gap_stat <- clusGap(accjudg_gram_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 500)
 
 #produce plot of clusters vs. gap statistic
 fviz_gap_stat(gap_stat)
@@ -129,9 +133,9 @@ fviz_gap_stat(gap_stat)
 # Calculate 30 different indices of cluster size and pick consensus
 library(NbClust)
 
-# NbClust(accjudg_scaled, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="all")
+# NbClust(accjudg_gram_scaled, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="all")
 
-NbClust(accjudg_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
+NbClust(accjudg_gram_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
 ```
 
 # .
@@ -141,17 +145,17 @@ NbClust(accjudg_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.
 ```{r}
 #perform hierarchical clustering using Ward's minimum variance
 set.seed(168)
-clust <- agnes(accjudg_scaled, method = "average")
+clust <- agnes(accjudg_gram_scaled, method = "average")
 clust
 
 #produce dendrogram
-# png(filename ="output/accjudg_dendrogram.png")
+# png(filename ="output/accjudg_gram_dendrogram.png")
 pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
 ```
 
 ```{r}
 #compute distance matrix
-d <- dist(accjudg_scaled, method = "euclidean")
+d <- dist(accjudg_gram_scaled, method = "euclidean")
 
 #perform hierarchical clustering using Ward's method
 set.seed(168)
@@ -173,7 +177,7 @@ plot(hclust_sgl)
 
 ```{r}
 #compute distance matrix
-d <- dist(accjudg_scaled, method = "euclidean")
+d <- dist(accjudg_gram_scaled, method = "euclidean")
 
 #perform hierarchical clustering using Ward's method
 set.seed(168)
@@ -181,27 +185,27 @@ final_clust <- hclust(d, method = "ward.D2")
 ```
 
 ```{r}
-
-#cut the dendrogram into 3 clusters
-cluster3 <- cutree(final_clust, k=3)
+#cut the dendrogram into clusters
+cluster <- cutree(final_clust, k=2)
 
 #find number of observations in each cluster
-table(cluster3)
+table(cluster)
 ```
 
 ```{r}
+png(filename = "output/accjudg_gram/accjudg_gram_clust_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
 plot(final_clust)
-rect.hclust(final_clust , k = 3, border = 2:6)
-abline(h = 13, col = 'red')
+rect.hclust(final_clust , k = 2, border = 2:6)
+# abline(h = 13, col = 'red')
 ```
 
 
 ```{r}
 # append cluster labels to original data
-accjudg_final_data <- cbind(hindi_groups, cluster3 = cluster3) %>%
-  cbind(accjudg_scores)
+accjudg_gram_final_data <- cbind(hindi_groups, cluster = cluster) %>%
+  cbind(accjudg_gram_scores)
 
-# View(accjudg_final_data)
+# View(accjudg_gram_final_data)
 ```
 
 
@@ -209,14 +213,14 @@ accjudg_final_data <- cbind(hindi_groups, cluster3 = cluster3) %>%
 ```{r}
 # Silhouette Plot
 # A large value (close to 1) represents good clustering; Close to -1 means bad (wrong cluster)
-sil <- silhouette(cluster3, dist(accjudg_scaled))
+sil <- silhouette(cluster, dist(accjudg_gram_scaled))
 fviz_silhouette(sil, palette="jco") + theme_bw()
 ```
 
 ```{r}
 # Dunn Index
 # A large Dunn index reprsents good clustering (min.separation/max.diamenter)
-km.stats <- cluster.stats(dist(accjudg_scaled), cluster3)
+km.stats <- cluster.stats(dist(accjudg_gram_scaled), cluster)
 km.stats$dunn
 ```
 
@@ -226,7 +230,7 @@ km.stats$dunn
 
 # How well do clusters match group structure?
 native_groups <- as.numeric(as.factor(hindi_groups$native_group)) 
-clust.stats <- cluster.stats(d = dist(accjudg_scaled), native_groups,cluster3)
+clust.stats <- cluster.stats(d = dist(accjudg_gram_scaled), native_groups,cluster)
 
 # Corrected Rand Index
 # Between 0 and 1, should be maximized (close to 1)
@@ -238,7 +242,7 @@ clust.stats$vi
 
 # Normalized Variation of Information (NVI) --- between 0 and 1
 ## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
-aricode::NVI(native_groups,cluster3)
+aricode::NVI(native_groups,cluster)
 ```
 
 ```{r}
@@ -246,7 +250,7 @@ aricode::NVI(native_groups,cluster3)
 
 # How well do clusters match group structure?
 residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
-clust.stats <- cluster.stats(d = dist(accjudg_scaled), residence_groups,cluster3)
+clust.stats <- cluster.stats(d = dist(accjudg_gram_scaled), residence_groups,cluster)
 
 # Corrected Rand Index
 # Between 0 and 1, should be maximized (close to 1)
@@ -258,14 +262,14 @@ clust.stats$vi
 
 # Normalized Variation of Information (NVI) --- between 0 and 1
 ## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
-aricode::NVI(residence_groups,cluster3)
+aricode::NVI(residence_groups,cluster)
 ```
 
 ```{r}
-# Language Experience v. Native
+# Language Experience v. Current cluster
 
 # How well do clusters match group structure?
-clust.stats <- cluster.stats(d = dist(accjudg_scaled), langexp_final_data$cluster3,accjudg_final_data$cluster3)
+clust.stats <- cluster.stats(d = dist(accjudg_gram_scaled), langexp_final_data$cluster3, accjudg_gram_final_data$cluster)
 
 # Corrected Rand Index
 # Between 0 and 1, should be maximized (close to 1)
@@ -277,41 +281,41 @@ clust.stats$vi
 
 # Normalized Variation of Information (NVI) --- between 0 and 1
 ## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
-aricode::NVI(langexp_final_data$cluster3,accjudg_final_data$cluster3)
+aricode::NVI(langexp_final_data$cluster3,accjudg_gram_final_data$cluster)
 ```
 
 #### Data Summary
 ```{r}
 # # Check cluster individuals
-# accjudg_final_data %>% filter(cluster3==1)
-# accjudg_final_data %>% filter(cluster3==2)
+# accjudg_gram_final_data %>% filter(cluster==1)
+# accjudg_gram_final_data %>% filter(cluster==2)
 ```
 
 
 ##### Count Tables
 ```{r}
 # Count of smaller clusters within larger clusters
-accjudg_final_data %>% count(cluster3) %>% pivot_wider(names_from = cluster3, values_from=n)
+accjudg_gram_final_data %>% count(cluster) %>% pivot_wider(names_from = cluster, values_from=n)
 ```
 
 ```{r}
 # 3-cluster table
-cluster_counts3 <- 
-  accjudg_final_data %>% count(cluster3) %>%
-  merge(accjudg_final_data %>% group_by(cluster3) %>%
+cluster_counts <- 
+  accjudg_gram_final_data %>% count(cluster) %>%
+  merge(accjudg_gram_final_data %>% group_by(cluster) %>%
           count(native_group) %>% pivot_wider(names_from = native_group, values_from=n) 
         ) %>%
-  merge(accjudg_final_data %>% group_by(cluster3) %>% 
+  merge(accjudg_gram_final_data %>% group_by(cluster) %>% 
           count(residence_group) %>% pivot_wider(names_from = residence_group, values_from=n)
         ) %>%
   mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
-  rename(Cluster = cluster3) %>%
+  rename(Cluster = cluster) %>%
   
   as_tibble() %>%
   gt(rowname_col = "Cluster") %>%
   tab_header(
     title = "Category Counts by Cluster",
-    subtitle = "3-cluster solution via hierarchical clustering"
+    subtitle = "2-cluster solution via hierarchical clustering"
   ) %>%
   fmt_integer(
     columns = everything()
@@ -362,32 +366,32 @@ cluster_counts3 <-
               cells_grand_summary(columns = everything(), rows = TRUE)
               )
             )
-cluster_counts3
+cluster_counts
 
-gtsave(cluster_counts3, "output/accjudg/accjudg_clust3_counts.html")
-webshot2::webshot("output/accjudg/accjudg_clust3_counts.html", "output/accjudg/accjudg_clust3_counts.png", vwidth = 625, zoom = 2.5) 
-# gtsave(cluster_counts3, "output/latex/accjudg_clust3_counts.tex") 
+gtsave(cluster_counts, "output/accjudg_gram/accjudg_gram_clust_counts.html")
+webshot2::webshot("output/accjudg_gram/accjudg_gram_clust_counts.html", "output/accjudg_gram/accjudg_gram_clust_counts.png", vwidth = 625, zoom = 2.5) 
+# gtsave(cluster_counts3, "output/latex/accjudg_gram_clust_counts.tex") 
 ```
 
 
 ```{r}
-# LangExp by AccJudg
+# LangExp by accjudg_gram
 # 3-cluster table 
-cluster_counts3 <- 
-  accjudg_final_data %>% count(cluster3) %>%
-  merge(accjudg_final_data %>% 
+cluster_counts <- 
+  accjudg_gram_final_data %>% count(cluster) %>%
+  merge(accjudg_gram_final_data %>% 
           mutate(cluster_langexp = langexp_final_data$cluster3) %>%
-          group_by(cluster3) %>%  count(cluster_langexp) %>%
+          group_by(cluster) %>%  count(cluster_langexp) %>%
           pivot_wider(names_from = cluster_langexp, values_from=n)
         ) %>%
   mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
-  rename(Cluster = cluster3) %>%
+  rename(Cluster = cluster) %>%
   
   as_tibble() %>%
   gt(rowname_col = "Cluster") %>%
   tab_header(
-    title = "LangExp Cluster Counts by AccJudg Cluster",
-    subtitle = "3-cluster solution via hierarchical clustering"
+    title = "LangExp Cluster Counts by Grammaticality Cluster",
+    subtitle = "2-cluster solution via hierarchical clustering"
   ) %>%
   fmt_integer(
     columns = everything()
@@ -426,22 +430,22 @@ cluster_counts3 <-
               cells_grand_summary(columns = everything(), rows = TRUE)
               )
             )
-cluster_counts3
+cluster_counts
 
-gtsave(cluster_counts3, "output/accjudg/accjudg_clust3_counts_langexp.html")
-webshot2::webshot("output/accjudg/accjudg_clust3_counts_langexp.html", "output/accjudg/accjudg_clust3_counts_langexp.png", vwidth = 625, zoom = 2.5) 
-# gtsave(cluster_counts3, "output/latex/accjudg_clust3_counts.tex") 
+gtsave(cluster_counts, "output/accjudg_gram/accjudg_gram_clust_counts_langexp.html")
+webshot2::webshot("output/accjudg_gram/accjudg_gram_clust_counts_langexp.html", "output/accjudg_gram/accjudg_gram_clust_counts_langexp.png", vwidth = 625, zoom = 2.5) 
+# gtsave(cluster_counts3, "output/latex/accjudg_gram_clust_counts.tex") 
 ```
 
 
 ##### Cluster Plots
 ```{r}
 # Plot clusters
-fviz_cluster(list(data = accjudg_scaled, cluster = cluster3),
+fviz_cluster(list(data = accjudg_gram_scaled, cluster = cluster),
              ellipse.type = "norm", geom = "point", stand = FALSE,
              palette = "jco") + gg_theme() +
   labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
-ggsave("./output/accjudg/accjudg_clust3_cluster.png")
+ggsave("./output/accjudg_gram/accjudg_gram_clust_cluster.png")
 
 ```
 
@@ -449,15 +453,15 @@ ggsave("./output/accjudg/accjudg_clust3_cluster.png")
 ##### Z-Mean Plots
 ```{r}
 # Z-score effect Cluster results
-hindi_groups %>% cbind(cluster3) %>%
-  cbind(accjudg_scaled) %>% group_by(cluster3) %>% summarize(across(where(is.numeric), mean)) %>%
+hindi_groups %>% cbind(cluster) %>%
+  cbind(accjudg_gram_scaled) %>% group_by(cluster) %>% summarize(across(where(is.numeric), mean)) %>%
   pivot_longer(gram_long:last_col(), names_to = "condition", values_to = "z_score") %>%
   mutate(condition = factor(condition, levels = c("sov", "osv", "svo", "ovs", "vso", "vos", "pp_ss", "pp_ls", "pp_sl", "pp_ll", "gram_long", "gram_question", "ungram_gender", "ungram_sv", "ungram_tense"))) %>%
   
   ggplot(aes(x=condition, y=z_score, fill=condition)) +
   geom_bar(stat="identity", position="dodge", alpha=0.8) +
   labs(subtitle="Cluster Z-Means", x="Cluster", y="Z-Score", color="Variable", fill="Variable") +
-  facet_wrap(~cluster3) +
+  facet_wrap(~cluster) +
   gg_theme() +
   # scale_fill_brewer(palette = "Paired") + 
   # scale_color_brewer(palette = "Paired") +
@@ -466,26 +470,26 @@ hindi_groups %>% cbind(cluster3) %>%
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 
 
-ggsave("output/accjudg/accjudg_clust3_zmeans.png", width=12, height=7)
+ggsave("output/accjudg_gram/accjudg_gram_clust_zmeans.png", width=12, height=7)
 ```
 
 ##### Mean Tables
 ```{r}
-cluster_means3 <- accjudg_final_data %>% group_by(cluster3) %>% 
+cluster_means <- accjudg_gram_final_data %>% group_by(cluster) %>% 
   summarize(across(where(is.numeric), mean))
-cluster_means3
+cluster_means
 ```
 
 ##### Mean Plots
 ```{r}
-cluster3.plt <- 
-  cluster_means3 %>% 
+cluster.plt <- 
+  cluster_means %>% 
   pivot_longer(gram_long:last_col(), names_to = "condition", values_to = "score") %>%
   mutate(condition = factor(condition, levels = c("sov", "osv", "svo", "ovs", "vso", "vos", "pp_ss", "pp_ls", "pp_sl", "pp_ll", "gram_long", "gram_question", "ungram_gender", "ungram_sv", "ungram_tense"))) %>%
   
   ggplot(aes(x=condition, y=score, fill=condition)) +
   geom_col(position="dodge", width=0.8, alpha=0.8) +
-  facet_wrap(~cluster3) +
+  facet_wrap(~cluster) +
   labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
   gg_theme() +
   # scale_fill_brewer(palette = "Paired") + 
@@ -493,22 +497,22 @@ cluster3.plt <-
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
-cluster3.plt
+cluster.plt
 
-ggsave("output/accjudg/accjudg_clust3_means.png", width=12, height=7)
+ggsave("output/accjudg_gram/accjudg_gram_clust_means.png", width=12, height=7)
 ```
 
 
 ##### Individual Plots
 ```{r}
 # # Cluster results by individual
-accjudg_final_data %>%
+accjudg_gram_final_data %>%
   pivot_longer(gram_long:last_col(), names_to = "condition", values_to = "score") %>%
   mutate(condition = factor(condition, levels = c("sov", "osv", "svo", "ovs", "vso", "vos", "pp_ss", "pp_ls", "pp_sl", "pp_ll", "gram_long", "gram_question", "ungram_gender", "ungram_sv", "ungram_tense"))) %>%
 
   ggplot(aes(x=condition, y=score, fill=condition, color=condition, alpha=participant)) +
   geom_col(position="dodge", width=0.8) +
-  facet_wrap(~cluster3, ncol=4) +
+  facet_wrap(~cluster, ncol=4) +
   labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
   scale_alpha_discrete(guide = "none") +
   gg_theme() +
@@ -518,7 +522,12 @@ accjudg_final_data %>%
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 
-ggsave("output/accjudg/accjudg_clust3_ind.png", width=12, height=7)
+ggsave("output/accjudg_gram/accjudg_gram_clust_ind.png", width=12, height=7)
+
+
+```
+
+
 
 
 ```
