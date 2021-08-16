@@ -205,15 +205,17 @@ table(cluster3)
 ```
 
 ```{r}
+png(filename = "output/langexp/langexp_clust3_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
 plot(final_clust)
 rect.hclust(final_clust , k = 3, border = 2:6)
-abline(h = 12.25, col = 'red')
+# abline(h = 12.25, col = 'red')
 ```
 
 ```{r}
+png(filename = "output/langexp/langexp_clust8_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
 plot(final_clust)
 rect.hclust(final_clust , k = 8, border = 2:6)
-abline(h = 5, col = 'red')
+# abline(h = 5, col = 'red')
 ```
 
 
