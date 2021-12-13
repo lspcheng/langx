@@ -8,6 +8,7 @@ library(tidyverse)
 library(mgsub)
 library(ggplot2)
 
+
 # Create tables
 library(gt)
 library(webshot)
@@ -37,6 +38,7 @@ glimpse(hindi_read)
 head(hindi_read)
 
 # View(hindi_read)
+length(unique(hindi_read$participant))
 ```
 
 ```{r}
@@ -149,14 +151,14 @@ hindi_langexp
 
 #### Check Multicollinearity
 
-Two highly correlated variables to collapse: `comfort_read` & `comfort_write`
+Two highly correlated variables (over .9) to collapse: `comfort_read` & `comfort_write`
 
 ```{r}
 # Select only variables
 hindi_langexp_var <- hindi_langexp %>% select(2:last_col()) 
 
 # Create correlation matrix
-hindi_langexp_cor <- cor(hindi_langexp_var)
+hindi_langexp_cor <- cor(hindi_langexp_var, method="pearson") #method="spearman")
 hindi_langexp_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
 
 # Visualize
@@ -192,7 +194,7 @@ No highly correlated condition/response variables!
 hindi_accjudg_var <- hindi_accjudg %>% select(2:last_col()) 
 
 # Create correlation matrix
-hindi_accjudg_cor <- cor(hindi_accjudg_var)
+hindi_accjudg_cor <- cor(hindi_accjudg_var, method="pearson") #method="spearman")
 hindi_accjudg_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
 
 # Visualize
