@@ -7,15 +7,19 @@ output: html_document
 library(tidyverse)
 library(mgsub)
 library(ggplot2)
+library(viridis)
+library(RColorBrewer)
 
 # Create tables
 library(gt)
 library(webshot)
+library(xtable)
 
 # Clustering
 library(cluster)
 library(factoextra)
 library(fpc)
+library(dendextend)
 
 gg_theme <- function() {
   theme_bw() +
@@ -27,6 +31,13 @@ gg_theme <- function() {
         strip.text = element_text(size=15))+
   theme(legend.title = element_text(size=15, face="bold"),
         legend.text=element_text(size=10))
+}
+
+get.rgb <- function(col, alpha=0.1) {
+  if(missing(col))
+    stop("Please provide a colour.")
+  rgbcol <- col2rgb(col)/255
+  rgb(rgbcol[1], rgbcol[2], rgbcol[3], alpha=alpha)
 }
 ```
 
@@ -133,99 +144,180 @@ library(NbClust)
 NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
 ```
 
+
 # .
-### Run Hierarchical clustering
+### Hierarchical Clustering w/ All data
 
-#### Test Runs
+#### Prep
 ```{r}
-#perform hierarchical clustering using Ward's minimum variance
-set.seed(168)
-clust <- agnes(langexp_scaled, method = "average")
-clust
+# Create a vector of colors
+native_colors_list <- c("both", "Eng", "HU", "neither              ") %>% 
+  cbind(c(brewer.pal(4, "YlGnBu")[4],
+          brewer.pal(4, "YlGnBu")[3],
+          brewer.pal(4, "YlGnBu")[2],
+          brewer.pal(4, "YlGnBu")[1]))
 
-#produce dendrogram
-# png(filename ="output/langexp_dendrogram.png")
-pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+residence_colors_list <- c("SouthAs", "SAtoNA", "NorthAm", "uncategorized") %>% 
+  cbind(c(brewer.pal(4, "YlOrBr")[4],
+          brewer.pal(4, "YlOrBr")[3],
+          brewer.pal(4, "YlOrBr")[2],
+          brewer.pal(4, "YlOrBr")[1]))
+
+native_colors <- case_when(
+  hindi_groups$native_group=="both" ~ brewer.pal(4, "YlGnBu")[4], 
+  hindi_groups$native_group=="Eng" ~ brewer.pal(4, "YlGnBu")[3],
+  hindi_groups$native_group=="HU" ~ brewer.pal(4, "YlGnBu")[2], 
+  hindi_groups$native_group=="neither" ~ brewer.pal(4, "YlGnBu")[1], 
+  TRUE ~ "white") #cornflowerblue, chocolate2
+
+residence_colors <- case_when(
+  hindi_groups$residence_group=="SouthAs" ~ brewer.pal(4, "YlOrBr")[4], 
+  hindi_groups$residence_group=="SAtoNA" ~ brewer.pal(4, "YlOrBr")[3],
+  hindi_groups$residence_group=="NorthAm" ~ brewer.pal(4, "YlOrBr")[2], 
+  TRUE ~ brewer.pal(4, "YlOrBr")[1]) 
 ```
 
 ```{r}
-#compute distance matrix
-d <- dist(langexp_scaled, method = "euclidean")
+# Brewer pallette options
+## Sequential
+RColorBrewer::display.brewer.pal(4, "OrRd") ###
+RColorBrewer::display.brewer.pal(4, "YlOrBr") ###
+RColorBrewer::display.brewer.pal(4, "YlGnBu") ###
 
-#perform hierarchical clustering using Ward's method
-set.seed(168)
-hclust_ward <- hclust(d, method = "ward.D2")
-hclust_avg <- hclust(d, method = "average" )
-hclust_cmp <- hclust(d, method = "complete")
-hclust_sgl <- hclust(d, method = "single" )
+
+## Qualitative
+RColorBrewer::display.brewer.pal(4, "Set2")
+RColorBrewer::display.brewer.pal(4, "Paired")
+RColorBrewer::display.brewer.pal(4, "Dark2")
+
+## Diverging (light in the middle)
+RColorBrewer::display.brewer.pal(4, "BrBG")
+# RColorBrewer::display.brewer.pal(4, "RdGy")
+RColorBrewer::display.brewer.pal(4, "RdBu")
+RColorBrewer::display.brewer.pal(4, "PuOr")
+RColorBrewer::display.brewer.pal(4, "PiYG")
+RColorBrewer::display.brewer.pal(4, "PRGn")
+
+# RColorBrewer::display.brewer.pal(4, "RdYlGn")
+RColorBrewer::display.brewer.pal(4, "RdYlBu")
+
+# RColorBrewer::display.brewer.pal(4, "Spectral")
 
 ```
 
-```{r}
-plot(hclust_ward)
-plot(hclust_avg)
-plot(hclust_cmp)
-plot(hclust_sgl)
-```
 
-#### Final Run
-
+#### Clustering
 ```{r}
-# #perform hierarchical clustering using Ward's minimum variance
-# set.seed(168)
-# clust <- agnes(langexp_scaled, method = "ward")
-# clust
-# 
-# #produce dendrogram
-# # png(filename ="output/langexp_dendrogram.png")
-# pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+# Run clustering
+clust <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "ward.D2")
+  
+dend <- clust %>% as.dendrogram()
 ```
 
 ```{r}
-#compute distance matrix
-d <- dist(langexp_scaled, method = "euclidean")
-
-#perform hierarchical clustering using Ward's method
-set.seed(168)
-final_clust <- hclust(d, method = "ward.D2")
-```
-
-```{r}
-#cut the dendrogram into 8 clusters
-cluster8 <- cutree(final_clust, k=8)
-
-#find number of observations in each cluster
-table(cluster8)
-
 #cut the dendrogram into 3 clusters
-cluster3 <- cutree(final_clust, k=3)
+clusters <- cutree(clust, k=3)
 
 #find number of observations in each cluster
-table(cluster3)
+table(clusters)
 ```
-
-```{r}
-png(filename = "output/langexp/langexp_clust3_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
-plot(final_clust)
-rect.hclust(final_clust , k = 3, border = 2:6)
-# abline(h = 12.25, col = 'red')
-```
-
-```{r}
-png(filename = "output/langexp/langexp_clust8_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
-plot(final_clust)
-rect.hclust(final_clust , k = 8, border = 2:6)
-# abline(h = 5, col = 'red')
-```
-
-
 ```{r}
 # append cluster labels to original data
-langexp_final_data <- cbind(hindi_groups, cluster8 = cluster8) %>%
-  cbind(cluster3 = cluster3) %>%
+langexp_final_data <- 
+  #cbind(hindi_groups, cluster8 = cluster8) %>%
+  cbind(hindi_groups, cluster3 = cluster3) %>%
   cbind(langexp_scores)
 
 # View(langexp_final_data)
+```
+##### Dendrogram
+
+```{r}
+# 3-cluster
+# Make the dendrogram
+png(filename = "output/langexp/langexp_clust3_dendextend_v3.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(4,4,0,0))
+dend %>%
+  set("leaves_pch", 19)  %>% 
+  # set("labels_col") %>% #value = brewer.pal(9, "Greys")[5:9], k=3
+  # set("branches_k_color") %>% # , value = brewer.pal(9, "Greys")[5:9], k=3
+  set("nodes_cex", 0.7) %>% 
+  plot(cex.axis=1.5) #horiz=TRUE
+rect.dendrogram(dend, k=3, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
+rect.dendrogram(dend, k=3, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(residence_colors, native_colors), 
+             dend = dend, 
+             rowLabels = c("residence", "native"), 
+             y_scale = 2,
+             cex.rowLabels = 1.2) #, horiz=TRUE
+# Add legend
+legend(x = 55, y = 21, #"topright", 
+       title = "Native Identification",
+       legend = native_colors_list[,1], 
+       fill = native_colors_list[,2], 
+       border = native_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+legend(x = 55, y = 13.5, #"topright", 
+       title = "Residence History",
+       legend = residence_colors_list[,1], 
+       fill = residence_colors_list[,2], 
+       border = residence_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+
+dev.off()
+
+?colored_bars
+?legend
+```
+
+```{r}
+colors_list <- c("both", "Eng", "HU", "neither", "SouthAs", "SAtoNA", "NorthAm", "uncategorized") %>% 
+  cbind(c(brewer.pal(4, "YlGnBu")[4],
+          brewer.pal(4, "YlGnBu")[3],
+          brewer.pal(4, "YlGnBu")[2],
+          brewer.pal(4, "YlGnBu")[1],
+          brewer.pal(4, "YlOrBr")[4],
+          brewer.pal(4, "YlOrBr")[3],
+          brewer.pal(4, "YlOrBr")[2],
+          brewer.pal(4, "YlOrBr")[1]))
+        #"white"))
+```
+
+
+```{r}
+# 8-cluster
+# Make the dendrogram
+png(filename = "output/langexp/langexp_clust8_dendextend.png", res = 300, width = 12, height = 7, units = 'in')
+
+# par(mar=c(11,1,1,1))
+dend %>%
+  set("leaves_pch", 19)  %>% 
+  set("labels_col", value = RColorBrewer::brewer.pal(9, "Greys")[4:9], k=8) %>%
+  set("branches_k_color", value = RColorBrewer::brewer.pal(9, "Greys")[5:9], k=8) %>%
+  set("nodes_cex", 0.7) %>% 
+  plot() #horiz=TRUE
+rect.dendrogram(dend, k=8, which=2, lty = 5, lwd = 0, col=rgb(0.4, 1, 0, 0.1))
+rect.dendrogram(dend, k=8, which=4, lty = 5, lwd = 0, col=rgb(0.1, 0.2, 1, 0.1))
+rect.dendrogram(dend, k=8, which=6, lty = 5, lwd = 0, col=rgb(0.1, 0.6, 0.6, 0.1))
+rect.dendrogram(dend, k=8, which=7, lty = 5, lwd = 0, col=rgb(0.1, 0.2, 1, 0.1))
+# rect.dendrogram(dend, k=8, which=8, lty = 5, lwd = 0, col=rgb(0.1, 0.2, 0.4, 0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(native, residence), dend = dend, rowLabels = c("native", "residence")) #, horiz=TRUE
+# Add legend
+legend("topright", legend = colors[,1], fill = colors[,2], border = colors[,2], bty = "n")
+
+dev.off()
 ```
 
 
@@ -574,13 +666,30 @@ ggsave("output/langexp/langexp_clust8_zmeans.png", width=12, height=7)
 
 ##### Mean Tables
 ```{r}
-cluster_means8 <- langexp_final_data %>% group_by(cluster8) %>%
-  summarize(across(where(is.numeric), mean)) %>% select(-cluster3)
-cluster_means8
 
 cluster_means3 <- langexp_final_data %>% group_by(cluster3) %>%
-  summarize(across(where(is.numeric), mean)) %>% select(-cluster8)
+  mutate(cluster3 = case_when(cluster3 == 1 ~ "C",
+                              cluster3 == 2 ~ "A",
+                              cluster3 == 3 ~ "B"))  %>%
+  summarize(across(where(is.numeric), mean)) #%>%
 cluster_means3
+
+cluster_means_table <- langexp_final_data %>% group_by(cluster3) %>%
+  mutate(cluster3 = case_when(cluster3 == 1 ~ "C",
+                              cluster3 == 2 ~ "A",
+                              cluster3 == 3 ~ "B"))  %>%
+  summarize(n=n(),
+            across(where(is.numeric), mean)) %>% #%>% select(-cluster8)
+  rename(Cluster = cluster3)
+cluster_means_table
+
+# print(xtable(cluster_means_table, type = "latex"), file = "clustermeans.tex")
+```
+
+```{r}
+# cluster_means8 <- langexp_final_data %>% group_by(cluster8) %>%
+#   summarize(across(where(is.numeric), mean)) %>% select(-cluster3)
+# cluster_means8
 ```
 
 ##### Mean Plots
@@ -599,10 +708,15 @@ cluster3.plt <-
   scale_color_brewer(palette = "Paired") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
 cluster3.plt
 
-ggsave("output/langexp/langexp_clust3_means.png", width=12, height=7)
+ggsave("output/langexp/langexp_clust3_means_v2.png", width=12, height=7)
 ```
 
 Cluster 1 = Low use of reading and writing now, but high comfort with all understand/speak/read/write
@@ -682,18 +796,27 @@ ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
 
 # .
 ### Run K-Means Cluster
-
-#### Test Run
 ```{r}
 set.seed(168)
 # Run clustering
-clust_km <- kmeans(langexp_scaled, 3)
+clust_km <- kmeans(dist(langexp_scaled), 3)
 
 # Check details
 clust_km$size
 clust_km$cluster
 clust_km$centers
 ```
+
+```{r}
+# append cluster labels to original data
+langexp_final_data_km <- 
+  cbind(hindi_groups, cluster3 = clust_km$cluster) %>%
+  cbind(langexp_scores)
+
+langexp_final_data_km
+# View(langexp_final_data_km)
+```
+
 
 ##### Validate (Internal)
 ```{r}
@@ -770,6 +893,9 @@ clust.stats$vi
 aricode::NVI(residence_groups,clust_km$cluster)
 ```
 
+
+
+
 # ...
 # For Reference
 
@@ -777,4 +903,121 @@ aricode::NVI(residence_groups,clust_km$cluster)
 # gtsave(cluster_counts3, "output/langexp_clust3_counts.png", delay=5) 
 ## no bold (known bug but unfixed as of Aug 2021; workaround: https://github.com/rstudio/gt/issues/621)
 ```
+
+
+#### Test Runs
+```{r}
+#perform hierarchical clustering using Ward's minimum variance
+set.seed(168)
+clust <- agnes(langexp_scaled, method = "average")
+clust
+
+#produce dendrogram
+# png(filename ="output/langexp_dendrogram.png")
+pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram")
+```
+
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+hclust_ward <- hclust(d, method = "ward.D2")
+hclust_avg <- hclust(d, method = "average" )
+hclust_cmp <- hclust(d, method = "complete")
+hclust_sgl <- hclust(d, method = "single" )
+
+```
+
+```{r}
+plot(hclust_ward)
+plot(hclust_avg)
+plot(hclust_cmp)
+plot(hclust_sgl)
+```
+
+
+###### Plots via ggDendro
+```{r}
+library(ggdendro)
+
+# Quick wrapper plot
+ggdendrogram(dend, rotate=T) +
+  labs(title = "Language Experience Clustering")
+
+ddata <- dendro_data(dend, type="rectangle")
+
+p <- ggplot(segment(ddata)) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+  coord_flip() +
+  # scale_y_reverse(expand = c(0.2, 0)) +
+  theme_dendro()
+p
+
+label(ddata)
+```
+
+```{r}
+RColorBrewer::brewer.pal(4, "Blues")[2:5]
+RColorBrewer::brewer.pal(9, "YlGnBu")[9]
+RColorBrewer::brewer.pal(8, "Greens")
+
+RColorBrewer::brewer.pal(9, "YlOrBr")[9]
+```
+
+
+
+##### Rest of Clustering
+
+```{r}
+# #perform hierarchical clustering using Ward's minimum variance
+# set.seed(168)
+# clust <- agnes(langexp_scaled, method = "ward")
+# clust
+# 
+# #produce dendrogram
+# # png(filename ="output/langexp_dendrogram.png")
+# pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+```
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+final_clust <- hclust(d, method = "ward.D2")
+```
+
+```{r}
+#cut the dendrogram into 8 clusters
+cluster8 <- cutree(final_clust, k=8)
+
+#find number of observations in each cluster
+table(cluster8)
+
+#cut the dendrogram into 3 clusters
+cluster3 <- cutree(final_clust, k=3)
+
+#find number of observations in each cluster
+table(cluster3)
+```
+
+```{r}
+png(filename = "output/langexp/langexp_clust3_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
+plot(final_clust)
+rect.hclust(final_clust , k = 3, border = 2:6)
+# abline(h = 12.25, col = 'red')
+```
+
+```{r}
+png(filename = "output/langexp/langexp_clust8_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
+plot(final_clust)
+rect.hclust(final_clust , k = 8, border = 2:6)
+# abline(h = 5, col = 'red')
+```
+
+
 
