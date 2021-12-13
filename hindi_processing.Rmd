@@ -12,6 +12,8 @@ library(ggplot2)
 # Create tables
 library(gt)
 library(webshot)
+library(xtable)
+
 ```
 
 ## Read in Data
@@ -131,7 +133,65 @@ hindi_subj %>% count(residence_group)
 # filter(hindi_subj, is.na(loc_child))
 ```
 
+### Descriptive Summary
+```{r}
+hindi_subj_mean <- 
+  hindi_subj %>% group_by(native_group) %>%
+  summarize(n=n(),
+            across(hear_child:comfort_speak, mean))
 
+print(xtable(hindi_subj_mean, type = "latex"), file = "nativegroups.tex")
+```
+
+```{r}
+
+hindi_subj %>% group_by(native_group) %>%
+  summarize(across(hear_child:comfort_speak, mean)) %>%
+  
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_read", "comfort_write"))) %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~native_group, ncol=4) +
+  labs(x="Native Groups", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+```
+
+```{r}
+hindi_subj_mean <- 
+  hindi_subj %>% group_by(residence_group) %>%
+  summarize(across(hear_child:comfort_speak, mean))
+
+print(xtable(hindi_subj_mean, type = "latex"), file = "residencegroups.tex")
+```
+
+```{r}
+
+hindi_subj %>% group_by(residence_group) %>%
+  summarize(across(hear_child:comfort_speak, mean)) %>%
+  
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_read", "comfort_write"))) %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~residence_group, ncol=4) +
+  labs(x="Residence Group", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+```
 
 ## Compile Clustering DataFrames
 
