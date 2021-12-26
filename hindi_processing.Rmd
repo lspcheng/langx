@@ -246,33 +246,6 @@ hindi_subj %>% group_by(residence_group) %>%
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 ```
 
-### Acceptability Judgments
-```{r}
-hindi_accjudg <- hindi %>% select(participant, item, condition, response) %>% 
-  group_by(participant) %>%
-  mutate(Zresponse = scale(response)) %>% select(-response) %>%
-  pivot_wider(participant:item, names_from=condition, values_from=Zresponse) %>%
-  group_by(participant) %>% summarize(across(where(is.numeric), ~ mean(.x, na.rm=TRUE)))
-hindi_accjudg
-```
-
-
-#### Check Multicollinearity
-
-No highly correlated condition/response variables!
-
-```{r}
-# Select only variables
-hindi_accjudg_var <- hindi_accjudg %>% select(2:last_col()) 
-
-# Create correlation matrix
-hindi_accjudg_cor <- cor(hindi_accjudg_var, method="pearson") #method="spearman")
-hindi_accjudg_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
-
-# Visualize
-corrplot::corrplot(hindi_accjudg_cor,method='number',is.corr = T)
-```
-
 ## Save Processed Data
 ```{r}
 if (!dir.exists("data/processed")) {
