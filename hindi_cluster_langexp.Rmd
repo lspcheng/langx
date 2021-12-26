@@ -7,7 +7,7 @@ output: html_document
 library(tidyverse)
 library(mgsub)
 library(ggplot2)
-library(viridis)
+# library(viridis)
 library(RColorBrewer)
 
 # Create tables
@@ -43,32 +43,157 @@ get.rgb <- function(col, alpha=0.1) {
 
 ## Load in Data
 ```{r}
+load(file="data/processed/hindi.RData")
+load(file="data/processed/hindi_subj.RData")
 load(file="data/processed/hindi_groups.RData")
-load(file="data/processed/hindi_langexp.RData")
 ```
 
 # .
-## Cluster Analysis
+## Pre-Clustering
+### Stage 1: Select Clustering Variables
 
-### Prep Data
+#### Prepare Dataframe
 ```{r}
-# Full F1-F2 vowel space
+hindi_langexp <- hindi %>% select(participant, hear_child:comfort_speak) %>% distinct()
+hindi_langexp
+
 langexp_scores <- hindi_langexp %>% select(-participant)
-langexp_scaled <- as.data.frame(lapply(langexp_scores, scale))
-langexp_scaled
 ```
 
-### Assess Clustering Tendency
+#### Check Multicollinearity
+
+Two highly correlated variables (over .9) to collapse: `comfort_read` & `comfort_write`
 
 ```{r}
+# Create correlation matrix
+hindi_langexp_cor <- cor(langexp_scores, method="pearson") #method="spearman")
+hindi_langexp_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
+
+# Visualize
+corrplot::corrplot(hindi_langexp_cor,method='number',is.corr = T)
+```
+
+```{r}
+# Modify dataframe to average multicolliear variables
+hindi_langexp <- hindi_langexp %>%
+  mutate(comfort_readwrite = (comfort_read+comfort_write)/2) %>% # take average
+  select(-comfort_read, -comfort_write)
+hindi_langexp
+```
+
+### Stage 2: Research Design
+
+#### Sample Size
+* Is the sample (large enough to be) representative?
+* What is the smallest number of cases per cluster that will represent meaningful segments of the population?
+
+```{r}
+# A cluster size representing 10% of the sample
+count(hindi_langexp) %>% mutate(tenpercent = n * 0.10)
+```
+
+
+#### Standardize Variables
+* Choose to standardize or not?
+* If standardize, z-scores (center and scale SD) or just mean center (center mean on 0, but leave SD)?
+
+```{r}
+# Mean-centered only (CENTERED)
+langexp_centered <- as.data.frame(lapply(langexp_scores, scale, center=TRUE, scale=FALSE))
+langexp_centered
+
+# Z-scored (SCALED)
+langexp_scaled <- as.data.frame(lapply(langexp_scores, scale))
+langexp_scaled
+
+```
+
+
+#### Check for Outliers
+
+* Use the Mahalanobis distance to assess outliers via visual inspection and selecting a threshold cut-off
+
+```{r}
+# Finding the center point 
+langexp.center  = colMeans(langexp_scores)
+
+# Finding the covariance matrix
+langexp.cov     = cov(langexp_scores)
+
+# Calculate Mahalnobis distance + identify outliers
+hindi_dist <- hindi_subj %>% 
+  cbind(m_dist = mahalanobis(langexp_scores, 
+                             langexp.center, langexp.cov)) %>%
+  mutate(outlier = ifelse(m_dist > 31, TRUE, FALSE))
+
+hindi_dist %>%
+  arrange(desc(m_dist))
+```
+
+```{r}
+library(factoextra)
+
+# CENTERED
+fviz_pca_ind(prcomp(langexp_centered), title = "PCA - Language Experience Data",
+             habillage = hindi_dist$outlier,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+
+# SCALED
+# Plot dataset with PCA to reduce dimensions to 2
+fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
+             habillage = hindi_dist$outlier,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+```
+
+#### Define Similarity
+* Correlation vs. Distance? 
+* If distance, which type of distance?
+
+```{r}
+# Try several to see what is the best. Basic is Euclidean
+
+## Distance (both pattern and magnitutde)
+get_dist(langexp_scaled, method="euclidean")
+get_dist(langexp_scaled, method="manhattan")
+
+## Correlation (pattern only)
+get_dist(langexp_scaled, method="pearson")
+get_dist(langexp_scaled, method="spearman")
+```
+
+### Stage 3: Assumptions
+#### Assess Sample Representativeness
+<!-- What kind of sample was this? Was it random selection? Does it oversample from certain parts of South Asia/USA?-->
+
+#### Assess Multicollinearity
+Addressed during Clustering Variable selection ('Check Multicollinearity')
+
+#### Assess Clustering Tendency
+```{r}
+# CENTERED
+# Create and plot Random dataset to compare to actual
+random_df <- apply(langexp_centered, 2, function(x){runif(length(x), min(x), (max(x)))})
+random_df <- as.data.frame(random_df)
+random_centered <- as.data.frame(lapply(random_df, scale, scale=FALSE))
+# random_centered
+
+# Plot random dataset with PCA to reduce dimensions to 2
+fviz_pca_ind(prcomp(random_centered), title = "PCA - Language Exp Data (Centered)",
+             habillage = hindi_groups$native_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+
+# SCALED
 # Create and plot Random dataset to compare to actual
 random_df <- apply(langexp_scores, 2, function(x){runif(length(x), min(x), (max(x)))})
 random_df <- as.data.frame(random_df)
 random_scaled <- as.data.frame(lapply(random_df, scale))
-random_scaled
+# random_scaled
 
 # Plot random dataset with PCA to reduce dimensions to 2
-fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data",
+fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data (Scaled)",
              habillage = hindi_groups$native_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
@@ -76,14 +201,28 @@ fviz_pca_ind(prcomp(random_scaled), title = "PCA - Language Exp Data",
 
 
 ```{r}
+# CENTERED
 #### Visual Inspection
 # Plot dataset with PCA to reduce dimensions to 2
-fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
+fviz_pca_ind(prcomp(langexp_centered), title = "PCA - Language Experience Data (Centered)",
              habillage = hindi_groups$native_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
 
-fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
+fviz_pca_ind(prcomp(langexp_centered), title = "PCA - Language Experience Data (Centered)",
+             habillage = hindi_groups$residence_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+
+# SCALED
+#### Visual Inspection
+# Plot dataset with PCA to reduce dimensions to 2
+fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data (Scaled)",
+             habillage = hindi_groups$native_group,  palette = "jco",
+             geom = "point", ggtheme = theme_classic(),
+             legend = "bottom")
+
+fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data (Scaled)",
              habillage = hindi_groups$residence_group,  palette = "jco",
              geom = "point", ggtheme = theme_classic(),
              legend = "bottom")
@@ -91,11 +230,19 @@ fviz_pca_ind(prcomp(langexp_scaled), title = "PCA - Language Experience Data",
 
 ```{r}
 # Check Hopkins statistics (above 0.5 is threshold)
+
+# CENTERED
+res <- get_clust_tendency(langexp_centered, n = nrow(langexp_scaled)-1, graph = FALSE)
+res$hopkins_stat
+
+# SCALED
 res <- get_clust_tendency(langexp_scaled, n = nrow(langexp_scaled)-1, graph = FALSE)
 res$hopkins_stat
 ```
 
-
+# .
+## Cluster Analysis
+### Stage 4: Hierarchical Clustering
 
 ### Assess Number of Clusters
 ```{r}

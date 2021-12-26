@@ -81,6 +81,7 @@ length(unique(hindi$participant))
 hindi %>% mutate_if(is.character, as.factor) %>% summary()
 ```
 
+### Full Dataframe
 ```{r}
 # Clean responses & code categorical groups
 hindi <- hindi %>% 
@@ -116,7 +117,9 @@ hindi <- hindi %>%
 ```
 
 
-### Check Questionnaire Responses
+### By-Subject Dataframe
+
+Check Questionnaire Responses
 ```{r}
 # Only by-subject questionnaire responses
 hindi_subj <- hindi %>% select(participant, loc_child:last_col()) %>%
@@ -133,7 +136,57 @@ hindi_subj %>% count(residence_group)
 # filter(hindi_subj, is.na(loc_child))
 ```
 
-### Descriptive Summary
+
+### Group Labels Dataframe
+```{r}
+# NOTE: Ignoring HUregion_time & HUregion_from columns right now
+
+hindi_groups <- hindi %>% select(participant, native_group, residence_group) %>% distinct()
+hindi_groups
+```
+
+## Descriptive Summary & Plots
+```{r}
+hindi_variable_means <- 
+  hindi_subj %>% pivot_longer(hear_child:comfort_speak, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_read", "comfort_write"))) %>%
+  group_by(variable) %>%
+  summarize(n=n(),
+            across(score, c(min = min, max = max, mean = mean, sd = sd), .names = "{.fn}")) #{.col}_{.fn}"
+hindi_variable_means
+
+```
+
+```{r}
+hindi_variable_means %>%
+  ggplot(aes(x=variable, y=mean, fill=variable, color=variable)) +
+  geom_col(position="dodge", width=0.8) +
+  labs(x="Native Groups", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+```
+
+```{r}
+hindi_subj %>% pivot_longer(hear_child:comfort_speak, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_read", "comfort_write"))) %>%
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable)) + #
+  geom_violin(width=1, alpha=0.1) +
+  geom_jitter(width=0.05, alpha=0.2) +
+  labs(x="Native Groups", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+```
+
 ```{r}
 hindi_subj_mean <- 
   hindi_subj %>% group_by(native_group) %>%
@@ -193,47 +246,6 @@ hindi_subj %>% group_by(residence_group) %>%
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 ```
 
-## Compile Clustering DataFrames
-
-### Category labels
-```{r}
-# NOTE: Ignoring HUregion_time & HUregion_from columns right now
-
-hindi_groups <- hindi %>% select(participant, native_group, residence_group) %>% distinct()
-hindi_groups
-```
-
-### Language Experience
-```{r}
-hindi_langexp <- hindi %>% select(participant, hear_child:comfort_speak) %>% distinct()
-hindi_langexp
-```
-
-#### Check Multicollinearity
-
-Two highly correlated variables (over .9) to collapse: `comfort_read` & `comfort_write`
-
-```{r}
-# Select only variables
-hindi_langexp_var <- hindi_langexp %>% select(2:last_col()) 
-
-# Create correlation matrix
-hindi_langexp_cor <- cor(hindi_langexp_var, method="pearson") #method="spearman")
-hindi_langexp_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
-
-# Visualize
-corrplot::corrplot(hindi_langexp_cor,method='number',is.corr = T)
-```
-
-```{r}
-# Modify dataframe to average multicolliear variables
-hindi_langexp <- hindi_langexp %>%
-  mutate(comfort_readwrite = (comfort_read+comfort_write)/2) %>% # take average
-  select(-comfort_read, -comfort_write)
-hindi_langexp
-```
-
-
 ### Acceptability Judgments
 ```{r}
 hindi_accjudg <- hindi %>% select(participant, item, condition, response) %>% 
@@ -268,9 +280,9 @@ if (!dir.exists("data/processed")) {
 }
 
 # save as Rdata
+save(hindi, file="data/processed/hindi.RData")
+save(hindi_subj, file="data/processed/hindi_subj.RData")
 save(hindi_groups, file="data/processed/hindi_groups.RData")
-save(hindi_langexp, file="data/processed/hindi_langexp.RData")
-save(hindi_accjudg, file="data/processed/hindi_accjudg.RData")
 ```
 
 
