@@ -18,8 +18,11 @@ library(xtable)
 # Clustering
 library(cluster)
 library(factoextra)
+library(NbClust)
 library(fpc)
 library(dendextend)
+
+library(corrplot)
 
 gg_theme <- function() {
   theme_bw() +
@@ -41,6 +44,61 @@ get.rgb <- function(col, alpha=0.1) {
 }
 ```
 
+## Specifying Dendrogram Info
+```{r}
+# Brewer pallette options
+## Sequential
+RColorBrewer::display.brewer.pal(4, "OrRd") ###
+RColorBrewer::display.brewer.pal(4, "YlOrBr") ###
+RColorBrewer::display.brewer.pal(4, "YlGnBu") ###
+
+
+## Qualitative
+RColorBrewer::display.brewer.pal(4, "Set2")
+RColorBrewer::display.brewer.pal(4, "Paired")
+RColorBrewer::display.brewer.pal(4, "Dark2")
+
+## Diverging (light in the middle)
+RColorBrewer::display.brewer.pal(4, "BrBG")
+# RColorBrewer::display.brewer.pal(4, "RdGy")
+RColorBrewer::display.brewer.pal(4, "RdBu")
+RColorBrewer::display.brewer.pal(4, "PuOr")
+RColorBrewer::display.brewer.pal(4, "PiYG")
+RColorBrewer::display.brewer.pal(4, "PRGn")
+
+# RColorBrewer::display.brewer.pal(4, "RdYlGn")
+RColorBrewer::display.brewer.pal(4, "RdYlBu")
+
+# RColorBrewer::display.brewer.pal(4, "Spectral")
+
+```
+```{r}
+# Create a vector of colors
+native_colors_list <- c("both", "Eng", "HU", "neither              ") %>% 
+  cbind(c(brewer.pal(4, "YlGnBu")[4],
+          brewer.pal(4, "YlGnBu")[3],
+          brewer.pal(4, "YlGnBu")[2],
+          brewer.pal(4, "YlGnBu")[1]))
+
+residence_colors_list <- c("SouthAs", "SAtoNA", "NorthAm", "uncategorized") %>% 
+  cbind(c(brewer.pal(4, "YlOrBr")[4],
+          brewer.pal(4, "YlOrBr")[3],
+          brewer.pal(4, "YlOrBr")[2],
+          brewer.pal(4, "YlOrBr")[1]))
+
+native_colors <- case_when(
+  hindi_groups$native_group=="both" ~ brewer.pal(4, "YlGnBu")[4], 
+  hindi_groups$native_group=="Eng" ~ brewer.pal(4, "YlGnBu")[3],
+  hindi_groups$native_group=="HU" ~ brewer.pal(4, "YlGnBu")[2], 
+  hindi_groups$native_group=="neither" ~ brewer.pal(4, "YlGnBu")[1], 
+  TRUE ~ "white") #cornflowerblue, chocolate2
+
+residence_colors <- case_when(
+  hindi_groups$residence_group=="SouthAs" ~ brewer.pal(4, "YlOrBr")[4], 
+  hindi_groups$residence_group=="SAtoNA" ~ brewer.pal(4, "YlOrBr")[3],
+  hindi_groups$residence_group=="NorthAm" ~ brewer.pal(4, "YlOrBr")[2], 
+  TRUE ~ brewer.pal(4, "YlOrBr")[1]) 
+```
 ## Load in Data
 ```{r}
 load(file="data/processed/hindi.RData")
@@ -56,8 +114,6 @@ load(file="data/processed/hindi_groups.RData")
 ```{r}
 hindi_langexp <- hindi %>% select(participant, hear_child:comfort_speak) %>% distinct()
 hindi_langexp
-
-langexp_scores <- hindi_langexp %>% select(-participant)
 ```
 
 #### Check Multicollinearity
@@ -66,7 +122,7 @@ Two highly correlated variables (over .9) to collapse: `comfort_read` & `comfort
 
 ```{r}
 # Create correlation matrix
-hindi_langexp_cor <- cor(langexp_scores, method="pearson") #method="spearman")
+hindi_langexp_cor <- cor(hindi_langexp %>% select(-participant), method="pearson") #method="spearman")
 hindi_langexp_cor %>% as_tibble(rownames = "var") # independent variables correlation matrix 
 
 # Visualize
@@ -98,6 +154,9 @@ count(hindi_langexp) %>% mutate(tenpercent = n * 0.10)
 * If standardize, z-scores (center and scale SD) or just mean center (center mean on 0, but leave SD)?
 
 ```{r}
+langexp_scores <- hindi_langexp %>% select(-participant)
+langexp_scores
+
 # Mean-centered only (CENTERED)
 langexp_centered <- as.data.frame(lapply(langexp_scores, scale, center=TRUE, scale=FALSE))
 langexp_centered
@@ -105,7 +164,6 @@ langexp_centered
 # Z-scored (SCALED)
 langexp_scaled <- as.data.frame(lapply(langexp_scores, scale))
 langexp_scaled
-
 ```
 
 
@@ -121,18 +179,18 @@ langexp.center  = colMeans(langexp_scores)
 langexp.cov     = cov(langexp_scores)
 
 # Calculate Mahalnobis distance + identify outliers
-hindi_dist <- hindi_subj %>% 
+hindi_mdist <- hindi_subj %>% 
   cbind(m_dist = mahalanobis(langexp_scores, 
                              langexp.center, langexp.cov)) %>%
-  mutate(outlier = ifelse(m_dist > 31, TRUE, FALSE))
+  select(participant, m_dist)
+  # mutate(outlier = ifelse(m_dist > 31, TRUE, FALSE)) %>%
+  # mutate(pvalue = pchisq(m_dist, df=3, lower.tail=FALSE)) #pval<0.001 outlier
 
-hindi_dist %>%
+hindi_mdist %>%
   arrange(desc(m_dist))
 ```
 
 ```{r}
-library(factoextra)
-
 # CENTERED
 fviz_pca_ind(prcomp(langexp_centered), title = "PCA - Language Experience Data",
              habillage = hindi_dist$outlier,  palette = "jco",
@@ -241,42 +299,74 @@ res$hopkins_stat
 ```
 
 # .
-## Cluster Analysis
-### Stage 4: Hierarchical Clustering
+## Part 1: Partitioning Cluster Analysis 
+### Stage 4: Employing Hierarchical Clustering
 
-### Assess Number of Clusters
+#### 1) Select Clustering Algorithm
+Selected Options:
+* Average (classes of any shape & size; typical default; less affected by outliers, somewhere in between single/complete methods)
+* Ward's (types in circular shape, i.e. compact, spherical clusters; similar sized tendency)
+* Complete (generally round similar clusters; affected by outliers)
+
+Not:
+* Centroid (political platforms; typical default; less affected by outliers)
+* Single (nearest neighours, often long links)
+
+
+#### 2) Initial Cluster Results
+##### Run Clustering
 ```{r}
-# Elbow method
-fviz_nbclust(langexp_scaled, kmeans, method = "wss", k.max = 10) +
-  labs(subtitle = "Elbow method")
+# Euclidean Distances
 
-fviz_nbclust(langexp_scaled, hcut, method = "wss", k.max = 10) +
-  labs(subtitle = "Elbow method")
+# AVERAGE LINKAGE
+clust_ave <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "average")
+dend_ave <- clust_ave %>% as.dendrogram()
+
+# WARDS
+clust_ward <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "ward.D2")
+dend_ward <- clust_ward %>% as.dendrogram()
+
+# COMPLETE LINKAGE
+clust_comp <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "complete")
+dend_comp <- clust_comp %>% as.dendrogram()
 ```
 
-
 ```{r}
-# Silhouette method
-fviz_nbclust(langexp_scaled, kmeans, method = "silhouette", k.max = 10) +
-  labs(subtitle = "Silhouette method")
+# # Mahalanobis distance
+# mahal_dist <- biotools::D2.dist(langexp_scaled, cov(langexp_scaled))
+# 
+# # AVERAGE LINKAGE
+# clust_ave <-
+#   mahal_dist %>% 
+#   hclust(method = "average")
+# dend_ave <- clust_ave %>% as.dendrogram()
+```
 
+##### Assess Number of Clusters
+```{r}
+# Elbow method
+fviz_nbclust(langexp_scaled, hcut, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+
+# Silhouette method
 fviz_nbclust(langexp_scaled, hcut, method = "silhouette", k.max = 10) +
   labs(subtitle = "Silhouette method")
 
-```
-
-
-```{r}
 # Gap statistic
 # nboot = 50 to keep the function speedy. 
 # recommended value: nboot= 500 for your analysis.
 # Use verbose = FALSE to hide computing progression.
-set.seed(123)
-fviz_nbclust(langexp_scaled, kmeans, nstart = 25,  method = "gap_stat", nboot = 500, k.max = 10)+
-  labs(subtitle = "Gap statistic method")
-
 #calculate gap statistic for each number of clusters (up to 10 clusters)
-gap_stat <- clusGap(langexp_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 500)
+gap_stat <- clusGap(langexp_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 50)
 
 #produce plot of clusters vs. gap statistic
 fviz_gap_stat(gap_stat)
@@ -284,15 +374,1044 @@ fviz_gap_stat(gap_stat)
 
 ```{r}
 # Calculate 30 different indices of cluster size and pick consensus
-library(NbClust)
 
-# NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="all")
+# Average (classes of any shape)
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="average", index="all")
+# NbClust(langexp_scaled, diss=mahal_dist, distance=NULL, min.nc=2, max.nc=10, method="average", index="all")
+```
 
+```{r}
+# Ward's (types in circular shape)
 NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
+# NbClust(langexp_scaled, distance="manhattan", min.nc=2, max.nc=10, method="ward.D2", index="all")
+```
+
+```{r}
+# Complete (circles)
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="complete", index="all")
+```
+
+```{r}
+#cut the dendrogram into 3 clusters
+clusters_2 <- cutree(clust_ave, k=2)
+clusters_3 <- cutree(clust_ave, k=3)
+clusters_4 <- cutree(clust_ave, k=4)
+
+#find number of observations in each cluster
+table(clusters_2)
+table(clusters_3)
+table(clusters_4)
+```
+
+##### Plot Dendrogram
+```{r}
+# 4-cluster
+# Make the dendrogram
+# png(filename = "output/langexp/langexp_clust3_dendextend_v4.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(4,4,0,0))
+dend_ave %>%
+  set("leaves_pch", 19)  %>% 
+  set("nodes_cex", 0.7) %>% 
+  plot(cex.axis=1.5) #horiz=TRUE
+rect.dendrogram(dend_ave, k=4, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
+rect.dendrogram(dend_ave, k=4, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
+rect.dendrogram(dend_ave, k=4, which=3, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[3],0.1))
+rect.dendrogram(dend_ave, k=4, which=4, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[1],0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(residence_colors, native_colors), 
+             dend = dend_ave, 
+             rowLabels = c("residence", "native"), 
+             y_scale = 2,
+             cex.rowLabels = 1.2) #, horiz=TRUE
+# Add legend
+legend(x = 55, y = 8, #"topright", 
+       title = "Native Identification",
+       legend = native_colors_list[,1], 
+       fill = native_colors_list[,2], 
+       border = native_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+legend(x = 55, y = 4, #"topright", 
+       title = "Residence History",
+       legend = residence_colors_list[,1], 
+       fill = residence_colors_list[,2], 
+       border = residence_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+
+# dev.off()
+```
+
+#### 3) Respecified Cluster Results
+##### Remove Outlier(s)
+```{r}
+# Remove outlier(s) & recreate dataframes
+
+hindi_groups <- hindi_groups %>% filter(participant!="r_yw6mqjwaz5dijox")
+hindi_langexp <- hindi_langexp %>% filter(participant!="r_yw6mqjwaz5dijox")
+langexp_scores <- hindi_langexp %>% select(-participant)
+
+native_colors <- case_when(
+  hindi_groups$native_group=="both" ~ brewer.pal(4, "YlGnBu")[4], 
+  hindi_groups$native_group=="Eng" ~ brewer.pal(4, "YlGnBu")[3],
+  hindi_groups$native_group=="HU" ~ brewer.pal(4, "YlGnBu")[2], 
+  hindi_groups$native_group=="neither" ~ brewer.pal(4, "YlGnBu")[1], 
+  TRUE ~ "white") #cornflowerblue, chocolate2
+
+residence_colors <- case_when(
+  hindi_groups$residence_group=="SouthAs" ~ brewer.pal(4, "YlOrBr")[4], 
+  hindi_groups$residence_group=="SAtoNA" ~ brewer.pal(4, "YlOrBr")[3],
+  hindi_groups$residence_group=="NorthAm" ~ brewer.pal(4, "YlOrBr")[2], 
+  TRUE ~ brewer.pal(4, "YlOrBr")[1]) 
+
+# Mean-centered only (CENTERED)
+langexp_centered <- as.data.frame(lapply(langexp_scores, scale, center=TRUE, scale=FALSE))
+langexp_centered
+
+# Z-scored (SCALED)
+langexp_scaled <- as.data.frame(lapply(langexp_scores, scale))
+langexp_scaled
+```
+
+##### Run Clustering
+```{r}
+# Euclidean Distances
+
+# AVERAGE LINKAGE
+clust_ave <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "average")
+dend_ave <- clust_ave %>% as.dendrogram()
+
+# WARDS
+clust_ward <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "ward.D2")
+dend_ward <- clust_ward %>% as.dendrogram()
+
+# COMPLETE LINKAGE
+clust_comp <-
+  langexp_scaled %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "complete")
+dend_comp <- clust_comp %>% as.dendrogram()
 ```
 
 
-# .
+##### Assess Number of Clusters
+```{r}
+# Elbow method
+fviz_nbclust(langexp_scaled, hcut, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+
+# Silhouette method
+fviz_nbclust(langexp_scaled, hcut, method = "silhouette", k.max = 10) +
+  labs(subtitle = "Silhouette method")
+
+# Gap statistic
+# nboot = 50 to keep the function speedy. 
+# recommended value: nboot= 500 for your analysis.
+# Use verbose = FALSE to hide computing progression.
+#calculate gap statistic for each number of clusters (up to 10 clusters)
+gap_stat <- clusGap(langexp_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 50)
+
+#produce plot of clusters vs. gap statistic
+fviz_gap_stat(gap_stat)
+```
+
+```{r}
+# Calculate 30 different indices of cluster size and pick consensus
+
+# Average (classes of any shape)
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="average", index="all")
+# NbClust(langexp_scaled, diss=mahal_dist, distance=NULL, min.nc=2, max.nc=10, method="average", index="all")
+```
+
+```{r}
+# Ward's (types in circular shape)
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="all")
+# NbClust(langexp_scaled, distance="manhattan", min.nc=2, max.nc=10, method="ward.D2", index="all")
+```
+
+```{r}
+# Complete (circles)
+NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="complete", index="all")
+```
+
+```{r}
+#cut the dendrogram into 3 clusters
+clusters_2 <- cutree(clust_ave, k=2)
+clusters_3 <- cutree(clust_ave, k=3)
+clusters_4 <- cutree(clust_ave, k=4)
+
+#find number of observations in each cluster
+table(clusters_2)
+table(clusters_3)
+table(clusters_4)
+```
+
+##### Plot Dendrogram
+```{r}
+# 3-cluster
+# Make the dendrogram
+# png(filename = "output/langexp/langexp_clust3_dendextend_v3.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(4,4,0,0))
+dend_ave %>%
+  set("leaves_pch", 19)  %>% 
+  # set("labels_col") %>% #value = brewer.pal(9, "Greys")[5:9], k=3
+  # set("branches_k_color") %>% # , value = brewer.pal(9, "Greys")[5:9], k=3
+  set("nodes_cex", 0.7) %>% 
+  plot(cex.axis=1.5) #horiz=TRUE
+rect.dendrogram(dend_ave, k=3, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
+rect.dendrogram(dend_ave, k=3, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(residence_colors, native_colors), 
+             dend = dend_ave, 
+             rowLabels = c("residence", "native"), 
+             y_scale = 1,
+             cex.rowLabels = 1.2) #, horiz=TRUE
+# Add legend
+legend(x = 55, y = 5, #"topright", 
+       title = "Native Identification",
+       legend = native_colors_list[,1], 
+       fill = native_colors_list[,2], 
+       border = native_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+legend(x = 55, y = 2.5, #"topright", 
+       title = "Residence History",
+       legend = residence_colors_list[,1], 
+       fill = residence_colors_list[,2], 
+       border = residence_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+
+# dev.off()
+```
+
+```{r}
+# 2-cluster
+# Make the dendrogram
+# png(filename = "output/langexp/langexp_clust3_dendextend_v3.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(4,4,0,0))
+dend_ave %>%
+  set("leaves_pch", 19)  %>% 
+  # set("labels_col") %>% #value = brewer.pal(9, "Greys")[5:9], k=3
+  # set("branches_k_color") %>% # , value = brewer.pal(9, "Greys")[5:9], k=3
+  set("nodes_cex", 0.7) %>% 
+  plot(cex.axis=1.5) #horiz=TRUE
+rect.dendrogram(dend_ave, k=2, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
+rect.dendrogram(dend_ave, k=2, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(residence_colors, native_colors), 
+             dend = dend_ave, 
+             rowLabels = c("residence", "native"), 
+             y_scale = 1,
+             cex.rowLabels = 1.2) #, horiz=TRUE
+# Add legend
+legend(x = 55, y = 5, #"topright", 
+       title = "Native Identification",
+       legend = native_colors_list[,1], 
+       fill = native_colors_list[,2], 
+       border = native_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+legend(x = 55, y = 2.5, #"topright", 
+       title = "Residence History",
+       legend = residence_colors_list[,1], 
+       fill = residence_colors_list[,2], 
+       border = residence_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+
+# dev.off()
+```
+
+```{r}
+# 4-cluster
+# Make the dendrogram
+# png(filename = "output/langexp/langexp_clust3_dendextend_v3.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(4,4,0,0))
+dend_ave %>%
+  set("leaves_pch", 19)  %>% 
+  # set("labels_col") %>% #value = brewer.pal(9, "Greys")[5:9], k=3
+  # set("branches_k_color") %>% # , value = brewer.pal(9, "Greys")[5:9], k=3
+  set("nodes_cex", 0.7) %>% 
+  plot(cex.axis=1.5) #horiz=TRUE
+rect.dendrogram(dend_ave, k=4, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
+rect.dendrogram(dend_ave, k=4, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
+rect.dendrogram(dend_ave, k=4, which=3, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[3],0.1))
+
+# Add the colored bar
+colored_bars(colors = cbind(residence_colors, native_colors), 
+             dend = dend_ave, 
+             rowLabels = c("residence", "native"), 
+             y_scale = 1,
+             cex.rowLabels = 1.2) #, horiz=TRUE
+# Add legend
+legend(x = 55, y = 5, #"topright", 
+       title = "Native Identification",
+       legend = native_colors_list[,1], 
+       fill = native_colors_list[,2], 
+       border = native_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+legend(x = 55, y = 2.5, #"topright", 
+       title = "Residence History",
+       legend = residence_colors_list[,1], 
+       fill = residence_colors_list[,2], 
+       border = residence_colors_list[,2], 
+       xjust = 0,
+       bty = "n",
+       cex = 1.2)
+
+# dev.off()
+```
+
+##### Select Cluster Solutions
+```{r}
+# append cluster labels to original data
+langexp_final_data <- 
+  cbind(hindi_groups, clusters_2 = clusters_2) %>%
+  cbind(clusters_3 = clusters_3) %>%
+  cbind(clusters_4 = clusters_4) %>%
+  cbind(langexp_scores) %>%
+  cbind(langexp_scaled %>% rename_with(., ~ paste(.x, "z", sep="."))) %>%
+  mutate(across(starts_with("clusters"), as.factor))
+langexp_final_data
+# View(langexp_final_data)
+
+```
+
+### Stage 5: Profiling Clustering Variable
+
+##### Examine Cluster Plots
+```{r}
+# Plot clusters
+fviz_cluster(list(data = langexp_scaled, cluster = clusters_3),
+             ellipse.type = "norm", geom = "point", stand = FALSE,
+             palette = "jco") + gg_theme() + 
+  labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
+
+fviz_cluster(list(data = langexp_scaled, cluster = clusters_2),
+             ellipse.type = "norm", geom = "point", stand = FALSE,
+             palette = "jco") + gg_theme() + 
+  labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
+
+fviz_cluster(list(data = langexp_scaled, cluster = clusters_4),
+             ellipse.type = "norm", geom = "point", stand = FALSE,
+             palette = "jco") + gg_theme() + 
+  labs(fill = "Cluster", color = "Cluster", shape = "Cluster")
+# ggsave("./output/langexp/langexp_clust4_cluster.png")
+
+```
+
+#### Examine Cluster Distinctiveness
+```{r}
+# Examine variable distinctiveness of each cluster solution
+summary(lm(hear_child ~ clusters_3, data=langexp_final_data))
+summary(lm(speak_child ~ clusters_3, data=langexp_final_data))
+summary(lm(hear_now ~ clusters_3, data=langexp_final_data))
+summary(lm(speak_now ~ clusters_3, data=langexp_final_data))
+summary(lm(read_now ~ clusters_3, data=langexp_final_data))
+summary(lm(write_now ~ clusters_3, data=langexp_final_data))
+summary(lm(comfort_understand ~ clusters_3, data=langexp_final_data))
+summary(lm(comfort_speak ~ clusters_3, data=langexp_final_data))
+summary(lm(comfort_readwrite ~ clusters_3, data=langexp_final_data))
+```
+
+```{r}
+summary(lm(hear_child ~ clusters_2, data=langexp_final_data))
+summary(lm(speak_child ~ clusters_2, data=langexp_final_data))
+summary(lm(hear_now ~ clusters_2, data=langexp_final_data))
+summary(lm(speak_now ~ clusters_2, data=langexp_final_data))
+summary(lm(read_now ~ clusters_2, data=langexp_final_data))
+summary(lm(write_now ~ clusters_2, data=langexp_final_data))
+summary(lm(comfort_understand ~ clusters_2, data=langexp_final_data))
+summary(lm(comfort_speak ~ clusters_2, data=langexp_final_data))
+summary(lm(comfort_readwrite ~ clusters_2, data=langexp_final_data))
+```
+
+```{r}
+summary(lm(hear_child ~ clusters_4, data=langexp_final_data))
+summary(lm(speak_child ~ clusters_4, data=langexp_final_data))
+summary(lm(hear_now ~ clusters_4, data=langexp_final_data))
+summary(lm(speak_now ~ clusters_4, data=langexp_final_data))
+summary(lm(read_now ~ clusters_4, data=langexp_final_data))
+summary(lm(write_now ~ clusters_4, data=langexp_final_data))
+summary(lm(comfort_understand ~ clusters_4, data=langexp_final_data))
+summary(lm(comfort_speak ~ clusters_4, data=langexp_final_data))
+summary(lm(comfort_readwrite ~ clusters_4, data=langexp_final_data))
+```
+
+#### Cluster Mean Tables
+```{r}
+cluster_means_3 <- langexp_final_data %>% group_by(clusters_3) %>%
+  mutate(clusters_3 = case_when(clusters_3 == 1 ~ "C",
+                              clusters_3 == 2 ~ "A",
+                              clusters_3 == 3 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child:comfort_readwrite, mean)) %>% 
+  rename(Cluster = clusters_3)
+cluster_means_3
+
+cluster_zmeans_3 <- langexp_final_data %>% group_by(clusters_3) %>%
+  mutate(clusters_3 = case_when(clusters_3 == 1 ~ "C",
+                              clusters_3 == 2 ~ "A",
+                              clusters_3 == 3 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child.z:comfort_readwrite.z, mean)) %>% 
+  rename(Cluster = clusters_3)
+cluster_zmeans_3
+# print(xtable(cluster_means_table, type = "latex"), file = "clustermeans.tex")
+```
+
+```{r}
+cluster_means_2 <- langexp_final_data %>% group_by(clusters_2) %>%
+  mutate(clusters_2 = case_when(clusters_2 == 2 ~ "A",
+                              clusters_2 == 1 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child:comfort_readwrite, mean)) %>% 
+  rename(Cluster = clusters_2)
+cluster_means_2
+
+cluster_zmeans_2 <- langexp_final_data %>% group_by(clusters_2) %>%
+  mutate(clusters_2 = case_when(clusters_2 == 2 ~ "A",
+                              clusters_2 == 1 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child.z:comfort_readwrite.z, mean)) %>% 
+  rename(Cluster = clusters_2)
+cluster_zmeans_2
+```
+
+```{r}
+cluster_means_4 <- langexp_final_data %>% group_by(clusters_4) %>%
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child:comfort_readwrite, mean)) %>% 
+  rename(Cluster = clusters_4)
+cluster_means_4
+
+cluster_zmeans_4 <- langexp_final_data %>% group_by(clusters_4) %>%
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child.z:comfort_readwrite.z, mean)) %>% 
+  rename(Cluster = clusters_4)
+cluster_zmeans_4
+```
+
+#### Cluster Mean Plots
+```{r}
+# Cluster mean Bar plots faceted by Cluster
+cluster3.plt <- 
+  cluster_means_3 %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, fill=variable)) +
+  geom_col(position="dodge", width=0.8, alpha=0.8) +
+  facet_wrap(~Cluster) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+cluster3.plt
+
+# Cluster individual bar plots faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(clusters_3 = case_when(clusters_3 == 1 ~ "C",
+                              clusters_3 == 2 ~ "A",
+                              clusters_3 == 3 ~ "B"))  %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~clusters_3, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+
+# Cluster individual line graphs faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(clusters_3 = case_when(clusters_3 == 1 ~ "C",
+                              clusters_3 == 2 ~ "A",
+                              clusters_3 == 3 ~ "B"))  %>%
+
+  ggplot(aes(x=variable, y=score, color=clusters_3, group=participant)) +
+  geom_point(alpha=0.5) +
+  geom_line(alpha=0.5) +
+  facet_wrap(~clusters_3, ncol=3) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+# Cluster mean line graph comparing across clusters
+cluster_means_3 %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+# Cluster Z-mean (relative) line graph comparing across clusters
+cluster_zmeans_3 %>%
+  pivot_longer(hear_child.z:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child.z", "speak_child.z", "hear_now.z", "speak_now.z", "read_now.z", "write_now.z", "comfort_understand.z", "comfort_speak.z", "comfort_readwrite.z"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+```
+
+
+```{r, error=FALSE}
+# Cluster mean Bar plots faceted by Cluster
+cluster4.plt <- 
+  cluster_means_4 %>% 
+  
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, fill=variable)) +
+  geom_col(position="dodge", width=0.8, alpha=0.8) +
+  facet_wrap(~Cluster, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+cluster4.plt
+
+# Cluster individual bar plots faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~clusters_4, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
+
+
+# Cluster individual line graphs faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+
+  ggplot(aes(x=variable, y=score, color=clusters_4, group=participant)) +
+  geom_point(alpha=0.5) +
+  geom_line(alpha=0.5) +
+  facet_wrap(~clusters_4, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+# Cluster mean line graph comparing across clusters
+cluster_means_4 %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+# Cluster Z-mean (relative) line graph comparing across clusters
+cluster_zmeans_4 %>%
+  pivot_longer(hear_child.z:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child.z", "speak_child.z", "hear_now.z", "speak_now.z", "read_now.z", "write_now.z", "comfort_understand.z", "comfort_speak.z", "comfort_readwrite.z"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+```
+
+### Stage 6: Validation and Profiling of Clusters
+
+#### Validate Cluster Stability (Internal)
+```{r}
+# Silhouette Plot
+# A large value (close to 1) represents good clustering; Close to -1 means bad (wrong cluster)
+sil <- silhouette(clusters_4, dist(langexp_scaled))
+fviz_silhouette(sil, palette="jco") + theme_bw()
+
+sil <- silhouette(cluster3, dist(langexp_scaled))
+fviz_silhouette(sil, palette="jco") + theme_bw()
+```
+
+```{r}
+# Dunn Index
+# A large Dunn index reprsents good clustering (min.separation/max.diamenter)
+km.stats <- cluster.stats(dist(langexp_scaled), clusters_4)
+km.stats$dunn
+```
+
+#### Assessing Criterion Validity
+```{r}
+# 4-cluster v. Native
+
+# How well do clusters match group structure?
+native_groups <- as.numeric(as.factor(hindi_groups$native_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), native_groups, clusters_4)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(native_groups,clusters_4)
+```
+
+```{r}
+# 3-cluster v. residence
+
+# How well do clusters match group structure?
+residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
+clust.stats <- cluster.stats(d = dist(langexp_scaled), residence_groups,clusters_4)
+
+# Corrected Rand Index
+# Between 0 and 1, should be maximized (close to 1)
+clust.stats$corrected.rand
+
+# Meila's Variation of Information (VI)
+# Closely related to mutual information. Should be minimized
+clust.stats$vi
+
+# Normalized Variation of Information (NVI) --- between 0 and 1
+## NVI is zero if the partitions are identical and one if they are statistically independent, meaning no information is gained about C by knowing C′ and vice versa (Esmailian & Jaili, 2015)
+aricode::NVI(residence_groups,clusters_4)
+```
+
+#### Profiling Final Cluster Solution
+
+
+##### Count Tables
+```{r}
+# 3-cluster table
+cluster_counts <- 
+  langexp_final_data %>% mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>% 
+  count(clusters_4) %>%
+  merge(langexp_final_data %>% 
+          mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+          group_by(clusters_4) %>%
+          count(native_group) %>% pivot_wider(names_from = native_group, values_from=n) 
+        ) %>%
+  merge(langexp_final_data %>% mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>%
+          group_by(clusters_4) %>% 
+          count(residence_group) %>% pivot_wider(names_from = residence_group, values_from=n)
+        ) %>%
+  mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+  rename(Cluster = clusters_4) %>%
+  
+  as_tibble() %>%
+  gt(rowname_col = "Cluster") %>%
+  tab_header(
+    title = "Category Counts by Cluster",
+    subtitle = "4-cluster solution via hierarchical clustering"
+  ) %>%
+  fmt_integer(
+    columns = everything()
+  ) %>%
+  tab_stubhead(label = "Cluster") %>%
+  tab_spanner(
+    label = "Native Identification",
+    columns = c(both, Eng, HU, neither)
+  ) %>%
+  tab_spanner(
+    label = "Residential History",
+    columns = c(NorthAm, SAtoNA, SouthAs, uncategorized)
+  ) %>%
+  grand_summary_rows(
+    columns = everything(),
+    fns = list(
+      Sum = ~sum(., na.rm=TRUE)),
+    missing_text = "NA",
+    formatter = fmt_integer
+  ) %>%
+  cols_align(align = c("center"),
+             columns = everything()
+             # columns = n
+  ) %>%
+  tab_style(style = cell_borders(color = "lightgrey", sides = c("left"), weight = px(2)),
+            locations = list(
+              cells_column_spanners(),
+              cells_column_labels(columns = NorthAm),
+              cells_body(columns = NorthAm),
+              cells_grand_summary(columns = NorthAm)
+            )
+            ) %>%
+  tab_style(style = list(
+    cell_borders(color = "lightgrey", sides = c("left", "right"), weight = px(2)),
+    cell_text(style = "italic")
+    ), 
+            locations = list(
+              cells_column_labels(columns = n),
+              cells_body(columns = n),
+              cells_grand_summary(columns = n)
+              )
+            ) %>%
+  tab_style(style = cell_text(weight="bold"), 
+            locations = list(
+              cells_title(groups= "title"),
+              cells_column_spanners(),
+              cells_stubhead(),
+              cells_grand_summary(columns = everything(), rows = TRUE)
+              )
+            )
+cluster_counts
+
+# gtsave(cluster_counts, "output/langexp/langexp_clust3_counts.html")
+# webshot2::webshot("output/langexp/langexp_clust_counts.html", "output/langexp/langexp_clust_counts.png", vwidth = 625, zoom = 2.5) 
+# gtsave(cluster_counts3, "output/latex/langexp_clust3_counts.tex") 
+```
+
+##### Cross Tabulation
+```{r}
+# Native counts x 4-cluster solution
+native_counts <- langexp_final_data %>% 
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>% 
+  group_by(clusters_4) %>% count(native_group) %>% 
+  pivot_wider( names_from=c(native_group), values_from=n) %>%
+    mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+  column_to_rownames(var="clusters_4")
+native_counts
+
+# Residence counts x 4-cluster solution
+residence_counts <- langexp_final_data %>% 
+  mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+                              clusters_4 == 2 ~ "A",
+                              clusters_4 == 3 ~ "D",
+                              clusters_4 == 4 ~ "B"))  %>% 
+  group_by(clusters_4) %>% count(residence_group) %>% 
+  pivot_wider(names_from=c(residence_group), values_from=n) %>%
+   mutate(across(where(is.numeric), ~ coalesce(.x, 0))) %>%
+  column_to_rownames(var="clusters_4")
+residence_counts
+```
+
+```{r}
+chisq <- chisq.test(native_counts)
+chisq
+
+chisq$observed
+round(chisq$expected,2)
+
+# Residuals
+round(chisq$residuals, 3)
+
+# Visualize residuals
+corrplot(chisq$residuals, is.cor = FALSE)
+
+# Contibution in percentage (%)
+contrib <- 100*chisq$residuals^2/chisq$statistic
+round(contrib, 3)
+
+# Visualize the contribution
+corrplot(contrib, is.cor = FALSE,method="circle", col=colorRampPalette(c("lightblue1","skyblue2","royalblue4"))(100),cl.lim=c(0,25))
+corrplot(contrib, is.cor = FALSE,method="number", col=colorRampPalette(c("lightblue1","skyblue2","royalblue4"))(100),cl.lim=c(0,25))
+
+```
+
+
+```{r}
+chisq <- chisq.test(residence_counts)
+chisq
+
+chisq$observed
+round(chisq$expected,2)
+
+# Residuals
+round(chisq$residuals, 3)
+
+# Visualize residuals
+corrplot(chisq$residuals, is.cor = FALSE)
+
+# Contibution in percentage (%)
+contrib <- 100*chisq$residuals^2/chisq$statistic
+round(contrib, 3)
+
+# Visualize the contribution
+corrplot(contrib, is.cor = FALSE,method="circle", col=colorRampPalette(c("lightblue1","skyblue2","royalblue4"))(100),cl.lim=c(0,25))
+corrplot(contrib, is.cor = FALSE,method="number", col=colorRampPalette(c("lightblue1","skyblue2","royalblue4"))(100),cl.lim=c(0,25))
+```
+
+##### Cluster Profile Descriptions
+A = Mostly North American, English native speakers (both to a lesser extent)
+B = South Asian, Hindi-Urdu native speakers
+C = SA to NA (and uncategorized) migrants, who have a range of nativeness iden.
+D = Mostly North American, mostly English and neither nativeness identification
+
+
+# ...
+# For Reference
+
+```{r}
+# gtsave(cluster_counts3, "output/langexp_clust3_counts.png", delay=5) 
+## no bold (known bug but unfixed as of Aug 2021; workaround: https://github.com/rstudio/gt/issues/621)
+```
+
+
+#### Test Runs
+```{r}
+#perform hierarchical clustering using Ward's minimum variance
+set.seed(168)
+clust <- agnes(langexp_scaled, method = "average")
+clust
+
+#produce dendrogram
+# png(filename ="output/langexp_dendrogram.png")
+pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram")
+```
+
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+hclust_ward <- hclust(d, method = "ward.D2")
+hclust_avg <- hclust(d, method = "average" )
+hclust_cmp <- hclust(d, method = "complete")
+hclust_sgl <- hclust(d, method = "single" )
+
+```
+
+```{r}
+plot(hclust_ward)
+plot(hclust_avg)
+plot(hclust_cmp)
+plot(hclust_sgl)
+```
+
+
+###### Plots via ggDendro
+```{r}
+library(ggdendro)
+
+# Quick wrapper plot
+ggdendrogram(dend, rotate=T) +
+  labs(title = "Language Experience Clustering")
+
+ddata <- dendro_data(dend, type="rectangle")
+
+p <- ggplot(segment(ddata)) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+  coord_flip() +
+  # scale_y_reverse(expand = c(0.2, 0)) +
+  theme_dendro()
+p
+
+label(ddata)
+```
+
+```{r}
+RColorBrewer::brewer.pal(4, "Blues")[2:5]
+RColorBrewer::brewer.pal(9, "YlGnBu")[9]
+RColorBrewer::brewer.pal(8, "Greens")
+
+RColorBrewer::brewer.pal(9, "YlOrBr")[9]
+```
+
+
+
+##### Rest of Clustering
+
+```{r}
+# #perform hierarchical clustering using Ward's minimum variance
+# set.seed(168)
+# clust <- agnes(langexp_scaled, method = "ward")
+# clust
+# 
+# #produce dendrogram
+# # png(filename ="output/langexp_dendrogram.png")
+# pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
+```
+
+```{r}
+#compute distance matrix
+d <- dist(langexp_scaled, method = "euclidean")
+
+#perform hierarchical clustering using Ward's method
+set.seed(168)
+final_clust <- hclust(d, method = "ward.D2")
+```
+
+```{r}
+#cut the dendrogram into 8 clusters
+cluster8 <- cutree(final_clust, k=8)
+
+#find number of observations in each cluster
+table(cluster8)
+
+#cut the dendrogram into 3 clusters
+cluster3 <- cutree(final_clust, k=3)
+
+#find number of observations in each cluster
+table(cluster3)
+```
+
+```{r}
+png(filename = "output/langexp/langexp_clust3_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
+plot(final_clust)
+rect.hclust(final_clust , k = 3, border = 2:6)
+# abline(h = 12.25, col = 'red')
+```
+
+```{r}
+png(filename = "output/langexp/langexp_clust8_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
+plot(final_clust)
+rect.hclust(final_clust , k = 8, border = 2:6)
+# abline(h = 5, col = 'red')
+```
+
+## Initial Runs (before Hair et al.)
 ### Hierarchical Clustering w/ All data
 
 #### Prep
@@ -380,8 +1499,8 @@ langexp_final_data <-
 
 # View(langexp_final_data)
 ```
-##### Dendrogram
 
+##### Dendrogram
 ```{r}
 # 3-cluster
 # Make the dendrogram
@@ -919,15 +2038,114 @@ ggsave("output/langexp/langexp_clust3_ind.png", width=12, height=7)
 
 ```
 
+
+# .
+## Part 2: Fine Tuning 
+### Stage 4: Employing Non-Hierarchical Clustering
+
+##### Run Clustering
 ```{r}
-langexp_final_data %>%
+# Use random seed
+set.seed(168)
+
+# Run clustering
+?kmeans
+clust_km <- kmeans(dist(langexp_scaled), 4)
+
+# Check details
+clust_km$size
+clust_km$cluster
+clust_km$centers
+```
+
+#### Select Cluster Solutions
+```{r}
+# append cluster labels to original data
+langexp_final_data_km <- 
+  cbind(hindi_groups, cluster = clust_km$cluster) %>%
+  cbind(langexp_scores) %>%
+  cbind(langexp_scaled %>% rename_with(., ~ paste(.x, "z", sep="."))) %>%
+  mutate(across(starts_with("cluster"), as.factor))
+
+langexp_final_data_km
+# View(langexp_final_data_km)
+```
+
+
+### Stage 5: Profiling Clustering Variable
+
+#### Examine Cluster Distinctiveness
+```{r}
+summary(lm(hear_child ~ cluster, data=langexp_final_data_km))
+summary(lm(speak_child ~ cluster, data=langexp_final_data_km))
+summary(lm(hear_now ~ cluster, data=langexp_final_data_km))
+summary(lm(speak_now ~ cluster, data=langexp_final_data_km))
+summary(lm(read_now ~ cluster, data=langexp_final_data_km))
+summary(lm(write_now ~ cluster, data=langexp_final_data_km))
+summary(lm(comfort_understand ~ cluster, data=langexp_final_data_km))
+summary(lm(comfort_speak ~ cluster, data=langexp_final_data_km))
+summary(lm(comfort_readwrite ~ cluster, data=langexp_final_data_km))
+```
+
+#### Cluster Mean Tables
+```{r}
+cluster_means_km <- langexp_final_data_km %>% group_by(cluster) %>%
+  mutate(cluster = case_when(cluster == 1 ~ "C",
+                              cluster == 2 ~ "A",
+                              cluster == 3 ~ "D",
+                              cluster == 4 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child:comfort_readwrite, mean)) %>% 
+  rename(Cluster = cluster)
+cluster_means_km
+
+cluster_zmeans_km <- langexp_final_data_km %>% group_by(cluster) %>%
+  mutate(cluster = case_when(cluster == 1 ~ "C",
+                              cluster == 2 ~ "A",
+                              cluster == 3 ~ "D",
+                              cluster == 4 ~ "B"))  %>%
+  summarize(n=n(),
+            across(hear_child.z:comfort_readwrite.z, mean)) %>% 
+  rename(Cluster = cluster)
+cluster_zmeans_km
+```
+
+#### Cluster Mean Plots
+```{r, error=FALSE}
+# Cluster mean Bar plots faceted by Cluster
+cluster_means_km %>% 
+  
   pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
   mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
-  mutate(cluster8 = factor(cluster8, levels = c("1", "3", "5", "7", "2", "4", "8", "6"))) %>%
+  
+  ggplot(aes(x=variable, y=score, fill=variable)) +
+  geom_col(position="dodge", width=0.8, alpha=0.8) +
+  facet_wrap(~Cluster, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
+
+# Cluster individual bar plots faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(cluster = case_when(cluster == 1 ~ "C",
+                              cluster == 2 ~ "A",
+                              cluster == 3 ~ "D",
+                              cluster == 4 ~ "B"))  %>%
 
   ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
   geom_col(position="dodge", width=0.8) +
-  facet_wrap(~cluster8, ncol=4) +
+  facet_wrap(~cluster, ncol=4) +
   labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
   scale_alpha_discrete(guide = "none") +
   gg_theme() +
@@ -937,35 +2155,114 @@ langexp_final_data %>%
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 
-ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
 
-```
+# Cluster individual line graphs faceted by Cluster 
+langexp_final_data %>%
+  pivot_longer(hear_child:comfort_readwrite, names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(cluster = case_when(cluster == 1 ~ "C",
+                              cluster == 2 ~ "A",
+                              cluster == 3 ~ "D",
+                              cluster == 4 ~ "B"))  %>%
 
-# .
-### Run K-Means Cluster
-```{r}
-set.seed(168)
-# Run clustering
-clust_km <- kmeans(dist(langexp_scaled), 3)
+  ggplot(aes(x=variable, y=score, color=cluster, group=participant)) +
+  geom_point(alpha=0.5) +
+  geom_line(alpha=0.5) +
+  facet_wrap(~cluster, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
 
-# Check details
-clust_km$size
-clust_km$cluster
-clust_km$centers
-```
+# Cluster mean line graph comparing across clusters
+cluster_means_km %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
 
-```{r}
-# append cluster labels to original data
-langexp_final_data_km <- 
-  cbind(hindi_groups, cluster3 = clust_km$cluster) %>%
-  cbind(langexp_scores)
-
-langexp_final_data_km
-# View(langexp_final_data_km)
+# Cluster Z-mean (relative) line graph comparing across clusters
+cluster_zmeans_km %>%
+  pivot_longer(hear_child.z:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child.z", "speak_child.z", "hear_now.z", "speak_now.z", "read_now.z", "write_now.z", "comfort_understand.z", "comfort_speak.z", "comfort_readwrite.z"))) %>%
+  
+  ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Variables", y="Mean Rating Score", color="Cluster") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Set2") + 
+  scale_color_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
+  theme(axis.title=element_text(size=25),
+        axis.text=element_text(size=20),
+        strip.text = element_text(size=25)) +
+  theme(legend.title = element_text(size=25, face="bold"),
+        legend.text=element_text(size=20))
 ```
 
 
 ##### Validate (Internal)
+###### Assess Number of Clusters
+```{r}
+# Elbow method
+fviz_nbclust(langexp_scaled, kmeans, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+
+fviz_nbclust(langexp_scaled, hcut, method = "wss", k.max = 10) +
+  labs(subtitle = "Elbow method")
+
+# Silhouette method
+
+fviz_nbclust(langexp_scaled, hcut, method = "silhouette", k.max = 10) +
+  labs(subtitle = "Silhouette method")
+
+# Gap statistic
+# nboot = 50 to keep the function speedy. 
+# recommended value: nboot= 500 for your analysis.
+# Use verbose = FALSE to hide computing progression.
+set.seed(123)
+fviz_nbclust(langexp_scaled, kmeans, nstart = 25,  method = "gap_stat", nboot = 50, k.max = 10)+
+  labs(subtitle = "Gap statistic method")
+
+#calculate gap statistic for each number of clusters (up to 10 clusters)
+gap_stat <- clusGap(langexp_scaled, FUN = hcut, nstart = 25, K.max = 10, B = 50)
+
+#produce plot of clusters vs. gap statistic
+fviz_gap_stat(gap_stat)
+```
+
+
+```{r}
+# NbClust(langexp_scaled, distance="euclidean", min.nc=2, max.nc=10, method="kmeans", index="all")
+```
+
+
 ```{r}
 # Silhouette Plot
 # A large value (close to 1) represents good clustering; Close to -1 means bad (wrong cluster)
@@ -1042,129 +2339,28 @@ aricode::NVI(residence_groups,clust_km$cluster)
 
 
 
-
-# ...
-# For Reference
-
 ```{r}
-# gtsave(cluster_counts3, "output/langexp_clust3_counts.png", delay=5) 
-## no bold (known bug but unfixed as of Aug 2021; workaround: https://github.com/rstudio/gt/issues/621)
-```
+langexp_final_data %>%
+  pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
+  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  mutate(cluster8 = factor(cluster8, levels = c("1", "3", "5", "7", "2", "4", "8", "6"))) %>%
 
+  ggplot(aes(x=variable, y=score, fill=variable, color=variable, alpha=participant)) +
+  geom_col(position="dodge", width=0.8) +
+  facet_wrap(~cluster8, ncol=4) +
+  labs(x="Cluster", y="Mean Rating Score", fill="Variable", color="Variable") +
+  scale_alpha_discrete(guide = "none") +
+  gg_theme() +
+  scale_fill_brewer(palette = "Paired") + 
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 
-#### Test Runs
-```{r}
-#perform hierarchical clustering using Ward's minimum variance
-set.seed(168)
-clust <- agnes(langexp_scaled, method = "average")
-clust
-
-#produce dendrogram
-# png(filename ="output/langexp_dendrogram.png")
-pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram")
-```
-
-
-```{r}
-#compute distance matrix
-d <- dist(langexp_scaled, method = "euclidean")
-
-#perform hierarchical clustering using Ward's method
-set.seed(168)
-hclust_ward <- hclust(d, method = "ward.D2")
-hclust_avg <- hclust(d, method = "average" )
-hclust_cmp <- hclust(d, method = "complete")
-hclust_sgl <- hclust(d, method = "single" )
+ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
 
 ```
 
-```{r}
-plot(hclust_ward)
-plot(hclust_avg)
-plot(hclust_cmp)
-plot(hclust_sgl)
-```
-
-
-###### Plots via ggDendro
-```{r}
-library(ggdendro)
-
-# Quick wrapper plot
-ggdendrogram(dend, rotate=T) +
-  labs(title = "Language Experience Clustering")
-
-ddata <- dendro_data(dend, type="rectangle")
-
-p <- ggplot(segment(ddata)) +
-  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
-  coord_flip() +
-  # scale_y_reverse(expand = c(0.2, 0)) +
-  theme_dendro()
-p
-
-label(ddata)
-```
-
-```{r}
-RColorBrewer::brewer.pal(4, "Blues")[2:5]
-RColorBrewer::brewer.pal(9, "YlGnBu")[9]
-RColorBrewer::brewer.pal(8, "Greens")
-
-RColorBrewer::brewer.pal(9, "YlOrBr")[9]
-```
-
-
-
-##### Rest of Clustering
-
-```{r}
-# #perform hierarchical clustering using Ward's minimum variance
-# set.seed(168)
-# clust <- agnes(langexp_scaled, method = "ward")
-# clust
-# 
-# #produce dendrogram
-# # png(filename ="output/langexp_dendrogram.png")
-# pltree(clust, cex = 0.6, hang = -1, main = "Dendrogram") 
-```
-
-```{r}
-#compute distance matrix
-d <- dist(langexp_scaled, method = "euclidean")
-
-#perform hierarchical clustering using Ward's method
-set.seed(168)
-final_clust <- hclust(d, method = "ward.D2")
-```
-
-```{r}
-#cut the dendrogram into 8 clusters
-cluster8 <- cutree(final_clust, k=8)
-
-#find number of observations in each cluster
-table(cluster8)
-
-#cut the dendrogram into 3 clusters
-cluster3 <- cutree(final_clust, k=3)
-
-#find number of observations in each cluster
-table(cluster3)
-```
-
-```{r}
-png(filename = "output/langexp/langexp_clust3_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
-plot(final_clust)
-rect.hclust(final_clust , k = 3, border = 2:6)
-# abline(h = 12.25, col = 'red')
-```
-
-```{r}
-png(filename = "output/langexp/langexp_clust8_dendrogram.png", res = 300, width = 12, height = 7, units = 'in')
-plot(final_clust)
-rect.hclust(final_clust , k = 8, border = 2:6)
-# abline(h = 5, col = 'red')
-```
 
 
 

@@ -193,7 +193,7 @@ hindi_subj_mean <-
   summarize(n=n(),
             across(hear_child:comfort_speak, mean))
 
-print(xtable(hindi_subj_mean, type = "latex"), file = "nativegroups.tex")
+# print(xtable(hindi_subj_mean, type = "latex"), file = "nativegroups.tex")
 ```
 
 ```{r}
@@ -222,7 +222,7 @@ hindi_subj_mean <-
   hindi_subj %>% group_by(residence_group) %>%
   summarize(across(hear_child:comfort_speak, mean))
 
-print(xtable(hindi_subj_mean, type = "latex"), file = "residencegroups.tex")
+# print(xtable(hindi_subj_mean, type = "latex"), file = "residencegroups.tex")
 ```
 
 ```{r}
