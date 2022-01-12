@@ -1041,7 +1041,10 @@ langexp_final_data %>%
         strip.text = element_text(size=25)) +
   theme(legend.title = element_text(size=25, face="bold"),
         legend.text=element_text(size=20))
+```
 
+
+```{r, error=FALSE}
 # Cluster mean line graph comparing across clusters
 cluster_means_4 %>%
   pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
@@ -1062,21 +1065,21 @@ cluster_means_4 %>%
   mutate(variable = factor(variable, levels = c("child_hear", "child_speak", "current_hear", "current_speak", "current_read", "current_write", "comfort_underst.", "comfort_speak", "comfort_readwr."))) %>%
   
   ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
-  geom_point() +
-  geom_line() +
+  geom_point(size=5) +
+  geom_line(lwd=3) +
   labs(x="Variables", y="Mean Rating Score", color="Cluster") +
   gg_theme() +
   scale_fill_brewer(palette = "Set2") + 
   scale_color_brewer(palette = "Set2") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(axis.text.x = element_text(angle = 25, vjust = 1, hjust=1)) +
   # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   # theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
   # theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=20)) +
-  theme(axis.title=element_text(size=25),
-        axis.text=element_text(size=20),
-        strip.text = element_text(size=25)) +
-  theme(legend.title = element_text(size=25, face="bold"),
-        legend.text=element_text(size=20))
+  theme(axis.title=element_text(size=30),
+        axis.text=element_text(size=25),
+        strip.text = element_text(size=30)) +
+  theme(legend.title = element_text(size=30, face="bold"),
+        legend.text=element_text(size=25))
 
 ggsave("output/langexp/langexp_clust4_means.png", width=12, height=7)
 
