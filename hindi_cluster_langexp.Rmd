@@ -450,7 +450,6 @@ legend(x = 55, y = 4, #"topright",
 ##### Remove Outlier(s)
 ```{r}
 # Remove outlier(s) & recreate dataframes
-
 hindi_groups <- hindi_groups %>% filter(participant!="r_yw6mqjwaz5dijox")
 hindi_langexp <- hindi_langexp %>% filter(participant!="r_yw6mqjwaz5dijox")
 langexp_scores <- hindi_langexp %>% select(-participant)
@@ -643,10 +642,17 @@ legend(x = 55, y = 2.5, #"topright",
 
 ```{r}
 # 4-cluster
-# Make the dendrogram
-# png(filename = "output/langexp/langexp_clust3_dendextend_v3.png", res = 300, width = 12, height = 5, units = 'in')
 
-par(mar=c(4,4,0,0))
+native_colors_list <- c("both", "Eng", "HU", "neither") %>% 
+  cbind(c(brewer.pal(4, "YlGnBu")[4],
+          brewer.pal(4, "YlGnBu")[3],
+          brewer.pal(4, "YlGnBu")[2],
+          brewer.pal(4, "YlGnBu")[1]))
+
+# Make the dendrogram
+png(filename = "output/langexp/langexp_clust4_dendextend.png", res = 300, width = 12, height = 5, units = 'in')
+
+par(mar=c(6,4,2,0))
 dend_ave %>%
   set("leaves_pch", 19)  %>% 
   # set("labels_col") %>% #value = brewer.pal(9, "Greys")[5:9], k=3
@@ -656,6 +662,8 @@ dend_ave %>%
 rect.dendrogram(dend_ave, k=4, which=1, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[2],0.1))
 rect.dendrogram(dend_ave, k=4, which=2, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[4],0.1))
 rect.dendrogram(dend_ave, k=4, which=3, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[3],0.1))
+rect.dendrogram(dend_ave, k=4, which=4, lty = 5, lwd = 0, col=get.rgb(brewer.pal(4, "YlOrBr")[1],0.1))
+
 
 # Add the colored bar
 colored_bars(colors = cbind(residence_colors, native_colors), 
@@ -664,24 +672,28 @@ colored_bars(colors = cbind(residence_colors, native_colors),
              y_scale = 1,
              cex.rowLabels = 1.2) #, horiz=TRUE
 # Add legend
-legend(x = 55, y = 5, #"topright", 
-       title = "Native Identification",
+legend("topright",  #x = 55, y = 5, 
+       inset=c(0.2,-0.1), #0.14,-0.1
+       title = "Native Identity",
        legend = native_colors_list[,1], 
        fill = native_colors_list[,2], 
        border = native_colors_list[,2], 
        xjust = 0,
        bty = "n",
-       cex = 1.2)
-legend(x = 55, y = 2.5, #"topright", 
-       title = "Residence History",
-       legend = residence_colors_list[,1], 
-       fill = residence_colors_list[,2], 
-       border = residence_colors_list[,2], 
-       xjust = 0,
-       bty = "n",
-       cex = 1.2)
+       cex = 1.2, 
+       xpd = TRUE)
+legend("topright", #x = 55, y = 2.5,
+      inset=c(0.02,-0.1), #-0.02, -0.1
+      title = "Residence History",
+      legend = residence_colors_list[,1],
+      fill = residence_colors_list[,2],
+      border = residence_colors_list[,2],
+      xjust = 0,
+      bty = "n",
+      cex = 1.2,
+      xpd = TRUE)
 
-# dev.off()
+dev.off()
 ```
 
 ##### Select Cluster Solutions
@@ -696,7 +708,18 @@ langexp_final_data <-
   mutate(across(starts_with("clusters"), as.factor))
 langexp_final_data
 # View(langexp_final_data)
+```
 
+```{r}
+# prepare exportable data for follow-up analysis
+# langexp_final_data %>%
+#     mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
+#                                   clusters_4 == 2 ~ "A",
+#                                   clusters_4 == 3 ~ "D",
+#                                   clusters_4 == 4 ~ "B"))  %>% 
+#   rename(Cluster=clusters_4) %>%
+#   select(-clusters_2, -clusters_3) %>%
+#   save(file="data/processed/langexp_final_data.RData")
 ```
 
 ### Stage 5: Profiling Clustering Variable
@@ -779,7 +802,7 @@ cluster_zmeans_3 <- langexp_final_data %>% group_by(clusters_3) %>%
             across(hear_child.z:comfort_readwrite.z, mean)) %>% 
   rename(Cluster = clusters_3)
 cluster_zmeans_3
-# print(xtable(cluster_means_table, type = "latex"), file = "clustermeans.tex")
+
 ```
 
 ```{r}
@@ -811,6 +834,8 @@ cluster_means_4 <- langexp_final_data %>% group_by(clusters_4) %>%
   rename(Cluster = clusters_4)
 cluster_means_4
 
+print(xtable::xtable(cluster_means_4, type = "latex"), file = "output/langexp/clustermeans.tex")
+
 cluster_zmeans_4 <- langexp_final_data %>% group_by(clusters_4) %>%
   mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
                               clusters_4 == 2 ~ "A",
@@ -820,6 +845,9 @@ cluster_zmeans_4 <- langexp_final_data %>% group_by(clusters_4) %>%
             across(hear_child.z:comfort_readwrite.z, mean)) %>% 
   rename(Cluster = clusters_4)
 cluster_zmeans_4
+
+# print(xtable::xtable(cluster_zmeans_4, type = "latex"), file = "output/langexp/clusterzmeans.tex")
+
 ```
 
 #### Cluster Mean Plots
@@ -914,6 +942,8 @@ cluster_means_3 %>%
   theme(legend.title = element_text(size=25, face="bold"),
         legend.text=element_text(size=20))
 
+# ggsave("output/langexp/langexp_clust3_means.png", width=12, height=7)
+
 # Cluster Z-mean (relative) line graph comparing across clusters
 cluster_zmeans_3 %>%
   pivot_longer(hear_child.z:last_col(), names_to="variable", values_to="score") %>%
@@ -935,6 +965,8 @@ cluster_zmeans_3 %>%
         strip.text = element_text(size=25)) +
   theme(legend.title = element_text(size=25, face="bold"),
         legend.text=element_text(size=20))
+
+# ggsave("output/langexp/langexp_clust3_zmeans.png", width=12, height=7)
 ```
 
 
@@ -1013,7 +1045,21 @@ langexp_final_data %>%
 # Cluster mean line graph comparing across clusters
 cluster_means_4 %>%
   pivot_longer(hear_child:last_col(), names_to="variable", values_to="score") %>%
-  mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  # mutate(variable = factor(variable, levels = c("hear_child", "speak_child", "hear_now", "speak_now", "read_now", "write_now", "comfort_understand", "comfort_speak", "comfort_readwrite"))) %>%
+  
+  # # For plot readability
+  # mutate(variable = gsub("_now", "_current", variable, fixed=TRUE)) %>%
+  # mutate(variable = gsub("_understand", "_underst.", variable, fixed=TRUE)) %>%
+  mutate(variable = case_when(variable == "hear_child" ~ "child_hear",
+                              variable == "speak_child" ~ "child_speak",
+                              variable == "hear_now" ~ "current_hear",
+                              variable == "speak_now" ~ "current_speak",
+                              variable == "read_now" ~ "current_read",
+                              variable == "write_now" ~ "current_write",
+                              variable == "comfort_understand" ~ "comfort_underst.",
+                              variable == "comfort_speak" ~ "comfort_speak",
+                              variable == "comfort_readwrite" ~ "comfort_readwr.")) %>%
+  mutate(variable = factor(variable, levels = c("child_hear", "child_speak", "current_hear", "current_speak", "current_read", "current_write", "comfort_underst.", "comfort_speak", "comfort_readwr."))) %>%
   
   ggplot(aes(x=variable, y=score, color=Cluster, group=Cluster)) +
   geom_point() +
@@ -1031,6 +1077,9 @@ cluster_means_4 %>%
         strip.text = element_text(size=25)) +
   theme(legend.title = element_text(size=25, face="bold"),
         legend.text=element_text(size=20))
+
+ggsave("output/langexp/langexp_clust4_means.png", width=12, height=7)
+
 
 # Cluster Z-mean (relative) line graph comparing across clusters
 cluster_zmeans_4 %>%
@@ -1053,6 +1102,9 @@ cluster_zmeans_4 %>%
         strip.text = element_text(size=25)) +
   theme(legend.title = element_text(size=25, face="bold"),
         legend.text=element_text(size=20))
+
+# ggsave("output/langexp/langexp_clust4_zmeans.png", width=12, height=7)
+
 ```
 
 ### Stage 6: Validation and Profiling of Clusters
@@ -1097,7 +1149,7 @@ aricode::NVI(native_groups,clusters_4)
 ```
 
 ```{r}
-# 3-cluster v. residence
+# 4-cluster v. residence
 
 # How well do clusters match group structure?
 residence_groups <- as.numeric(as.factor(hindi_groups$residence_group)) 
@@ -1121,7 +1173,7 @@ aricode::NVI(residence_groups,clusters_4)
 
 ##### Count Tables
 ```{r}
-# 3-cluster table
+# 4-cluster table
 cluster_counts <- 
   langexp_final_data %>% mutate(clusters_4 = case_when(clusters_4 == 1 ~ "C",
                               clusters_4 == 2 ~ "A",
@@ -1203,9 +1255,9 @@ cluster_counts <-
             )
 cluster_counts
 
-# gtsave(cluster_counts, "output/langexp/langexp_clust3_counts.html")
-# webshot2::webshot("output/langexp/langexp_clust_counts.html", "output/langexp/langexp_clust_counts.png", vwidth = 625, zoom = 2.5) 
-# gtsave(cluster_counts3, "output/latex/langexp_clust3_counts.tex") 
+gtsave(cluster_counts, "output/langexp/langexp_clust4_counts.html")
+webshot2::webshot("output/langexp/langexp_clust4_counts.html", "output/langexp/langexp_clust4_counts.png", vwidth = 625, zoom = 2.5)
+gtsave(cluster_counts, "output/langexp/langexp_clust4_counts.tex")
 ```
 
 ##### Cross Tabulation
