@@ -4,32 +4,12 @@ output: html_document
 ---
 # Preamble
 
-## Pipeline Structure
-```{r}
-NAME <- '1_hindi_processing' ## Name of the R file (w/o file extension!)
-PHASE <- 'P2-langexp-data' ## Name of the project phase 
-PROJECT <- 'langx' ## Name of project
-
-if (dir.exists(file.path('..', '..', '002-pipeline'))){
-  pipeline <- file.path('..', '..', '002-pipeline', PHASE, NAME)
-} else {
-  pipeline <- file.path('..', '..', '002-pipeline', PHASE, NAME)
-}
-
-if (!dir.exists(pipeline)) {
-  dir.create(pipeline, recursive=TRUE)
-  for (folder in c('out', 'store', 'temp')){
-    dir.create(file.path(pipeline, folder))
-  }
-}
-```
-
 ## Packages & Functions
 ```{r}
 library(tidyverse)
 library(mgsub)
 library(ggplot2)
-
+library(stringr)
 
 # Create tables
 library(gt)
@@ -50,11 +30,48 @@ gg_theme <- function() {
 }
 ```
 
+
+## Pipeline Structure
+```{r}
+# Fill in file structure info (e.g. using getwd())
+
+NAME <- '1_hindi_processing' ## Name of the R file (w/o file extension!)
+PHASE <- 'P2-langexp-data' ## Name of the project phase 
+PROJECT <- 'langx' ## Name of project
+```
+
+```{r}
+# Get project directory path & subfolder status from working dir
+PROJECT_DIR <- str_extract(getwd(), paste0("^(.*?)",PROJECT,"/"))
+
+if (basename(getwd()) != PHASE) {SUBFOLDER <- basename(getwd())} else {SUBFOLDER <- NA}
+
+# Get pipeline path names
+if (dir.exists(file.path(PROJECT_DIR, '04-analysis', '002-pipeline'))){
+  if (is.na(SUBFOLDER)){
+    pipeline <- file.path(PROJECT_DIR, '04-analysis', '002-pipeline', PHASE, NAME)
+  } else {
+    pipeline <- file.path(PROJECT_DIR, '04-analysis', '002-pipeline', PHASE, SUBFOLDER, NAME)
+  }
+} else {
+  pipeline <- file.path('.', 'pipeline', PHASE, NAME)
+}
+
+# Create pipeline folders
+if (!dir.exists(pipeline)) {
+  dir.create(pipeline, recursive=TRUE)
+  for (folder in c('out', 'store', 'temp')){
+    dir.create(file.path(pipeline, folder))
+  }
+}
+```
 # .
 # Data
 ## Read in Data
 ```{r}
-hindi_read <- read_delim("../../../03-data/001-external/P2-langexp-data/HindiAcceptabilityDemo210727.txt", "\t") 
+data_path <- file.path(PROJECT_DIR, "03-data", "001-external", PHASE)
+  
+hindi_read <- read_delim(file.path(data_path, "HindiAcceptabilityDemo210727.txt"), "\t") 
 ```
 
 

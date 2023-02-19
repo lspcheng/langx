@@ -4,32 +4,13 @@ output: html_document
 ---
 
 # Preamble
-## Pipeline Structure
-```{r}
-NAME <- '2_hindi_clustering_langexp' ## Name of the R file (w/o file extension!)
-PHASE <- 'P2-langexp-data' ## Name of the project phase 
-PROJECT <- 'langx' ## Name of project
-
-if (dir.exists(file.path('..', '..', '002-pipeline'))){
-  pipeline <- file.path('..', '..', '002-pipeline', PHASE, NAME)
-} else {
-  pipeline <- file.path('..', '..', '002-pipeline', PHASE, NAME)
-}
-
-if (!dir.exists(pipeline)) {
-  dir.create(pipeline, recursive=TRUE)
-  for (folder in c('out', 'store', 'temp')){
-    dir.create(file.path(pipeline, folder))
-  }
-}
-```
 
 ## Packages & Functions
 ```{r}
 library(tidyverse)
 library(mgsub)
 library(ggplot2)
-# library(viridis)
+library(stringr)
 library(RColorBrewer)
 
 # Create tables
@@ -66,6 +47,43 @@ get.rgb <- function(col, alpha=0.1) {
   rgb(rgbcol[1], rgbcol[2], rgbcol[3], alpha=alpha)
 }
 ```
+
+## Pipeline Structure
+```{r}
+# Fill in file structure info (e.g. using getwd())
+
+NAME <- '2_hindi_clustering_langexp' ## Name of the R file (w/o file extension!)
+PHASE <- 'P2-langexp-data' ## Name of the project phase 
+PROJECT <- 'langx' ## Name of project
+```
+
+
+```{r}
+# Get project directory path & subfolder status from working dir
+PROJECT_DIR <- str_extract(getwd(), paste0("^(.*?)",PROJECT,"/"))
+
+if (basename(getwd()) != PHASE) {SUBFOLDER <- basename(getwd())} else {SUBFOLDER <- NA}
+
+# Get pipeline path names
+if (dir.exists(file.path(PROJECT_DIR, '04-analysis', '002-pipeline'))){
+  if (is.na(SUBFOLDER)){
+    pipeline <- file.path(PROJECT_DIR, '04-analysis', '002-pipeline', PHASE, NAME)
+  } else {
+    pipeline <- file.path(PROJECT_DIR, '04-analysis', '002-pipeline', PHASE, SUBFOLDER, NAME)
+  }
+} else {
+  pipeline <- file.path('.', 'pipeline', PHASE, NAME)
+}
+
+# Create pipeline folders
+if (!dir.exists(pipeline)) {
+  dir.create(pipeline, recursive=TRUE)
+  for (folder in c('out', 'store', 'temp')){
+    dir.create(file.path(pipeline, folder))
+  }
+}
+```
+
 
 ## Specifying Dendrogram Info
 ```{r}
@@ -131,11 +149,11 @@ residence_colors <- case_when(
 ### Stage 1: Select Clustering Variables
 #### Load in Data
 ```{r}
-processing_out <- file.path('..', '..', '002-pipeline', PHASE, "1_hindi_processing", "out")
+processing_out_path <- file.path(PROJECT_DIR, '04-analysis', '002-pipeline', PHASE, "1_hindi_processing", "out")
 
-load(file=file.path(processing_out, "hindi.RData"))
-load(file=file.path(processing_out, "hindi_subj.RData"))
-load(file=file.path(processing_out, "hindi_groups.RData"))
+load(file=file.path(processing_out_path, "hindi.RData"))
+load(file=file.path(processing_out_path, "hindi_subj.RData"))
+load(file=file.path(processing_out_path, "hindi_groups.RData"))
 ```
 
 #### Prepare Dataframe
@@ -2448,7 +2466,7 @@ langexp_final_data %>%
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
   theme(legend.position = "bottom", legend.key.size = unit(.5, "cm"), legend.text = element_text(size=15))
 
-ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
+# ggsave("output/langexp/langexp_clust8_ind.png", width=12, height=7)
 
 ```
 
