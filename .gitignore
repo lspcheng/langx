@@ -5,10 +5,14 @@
 06-dissemination/
 07-misc/
 
-# History files
+# Process directories
 0_exploratory/
 0_archive/
+
+# OSX files
 *.DS_Store
+
+# History files
 .Rhistory
 .Rapp.history
 
